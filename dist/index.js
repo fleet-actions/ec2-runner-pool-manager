@@ -41300,6 +41300,7 @@ async function attemptToClaimInstance(input) {
     const { id, runId, ddbOps } = input;
     try {
         const now = Date.now();
+        // TODO: Claimed state duration needs to be an input as this is dependent startup of created instances
         const millisecondsToAdd = 5 * 60 * 1000; // (say, claim valid for 5 mins)
         const threshold = new Date(now + millisecondsToAdd).toISOString();
         // then if it fails any any here, that's OK, will recycle

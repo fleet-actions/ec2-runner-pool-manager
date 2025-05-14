@@ -1,0 +1,159 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Current Test File",
+      "program": "${workspaceFolder}/node_modules/.bin/jest",
+      "args": ["--runInBand", "${relativeFile}"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "NODE_OPTIONS": "--experimental-vm-modules",
+        "NODE_NO_WARNINGS": "1"
+      }
+    },
+    {
+      "name": "provision",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "cwd": "${workspaceRoot}",
+      "args": [
+        "@github/local-action",
+        ".",
+        "src/main.ts",
+        ".local-envs/.env.provision.test"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "refresh",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "cwd": "${workspaceRoot}",
+      "args": [
+        "@github/local-action",
+        ".",
+        "src/main.ts",
+        ".local-envs/.env.refresh.test"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "release",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "cwd": "${workspaceRoot}",
+      "args": [
+        "@github/local-action",
+        ".",
+        "src/main.ts",
+        ".local-envs/.env.release.test"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "echo",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "cwd": "${workspaceRoot}",
+      "args": [
+        "@github/local-action",
+        ".",
+        "src/main.ts",
+        ".local-envs/.env.echo.test"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "cleanup",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "cwd": "${workspaceRoot}",
+      "args": [
+        "@github/local-action",
+        ".",
+        "src/main.ts",
+        ".local-envs/.env.cleanup.test"
+      ],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"]
+    },
+    {
+      "name": "e2e-rpr",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/script/debugger",
+      "cwd": "${workspaceRoot}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "env": {
+        "RUN_ID": "000000000"
+      }
+    },
+    {
+      "name": "e2e-rpr-cleanup",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/script/debugger",
+      "cwd": "${workspaceRoot}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "env": {
+        "CLEANUP": "true",
+        "RUN_ID": "111000111"
+      }
+    },
+    {
+      "name": "e2e-rprr",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/script/debugger",
+      "cwd": "${workspaceRoot}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "env": {
+        "RUN_ID": "222000222",
+        "SECOND_REFRESH": "true"
+      }
+    },
+    {
+      "name": "e2e-rprr-cleanup",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/script/debugger",
+      "cwd": "${workspaceRoot}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "env": {
+        "RUN_ID": "333000333",
+        "SECOND_REFRESH": "true",
+        "CLEANUP": "true"
+      }
+    },
+    {
+      "name": "e2e-rprrp",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/script/debugger",
+      "cwd": "${workspaceRoot}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "node_modules/**"],
+      "env": {
+        "RUN_ID": "444000444",
+        "SECOND_REFRESH": "true",
+        "SECOND_PROVISION": "true"
+      }
+    }
+  ]
+}

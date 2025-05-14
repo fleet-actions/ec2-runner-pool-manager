@@ -1,0 +1,143 @@
+name: EC2 Runner Pool
+description:
+  elastic-ec2-runner-pool manages a pool of ec2 resources for usage of compute
+  across gha jobs
+author: Jason Aricheta
+
+# Add your action's branding here. This will appear on the GitHub Marketplace.
+branding:
+  icon: heart
+  color: red
+
+# Define your inputs here.
+inputs:
+  # Testing (ignore)
+  echo:
+    description: 'Input for mode: echo'
+    default: 'Hello World!!!'
+
+  # Must be available for all modes: UNIVERSALLY REQUIRED
+  aws-region:
+    description: >
+      [ALL; Required] AWS region - region for your resources
+    required: true
+  mode:
+    description: >
+      [ALL; Required] Operation mode (provision/release/refresh)
+    required: true
+  table-name:
+    description: >
+      [ALL; Required] DynamoDB table name - where state is stored
+    required: true
+
+  # Mode-specific inputs
+  # REFRESH (APPLICATION - REQUIRED); Defaults must be ''
+  #
+  #
+  ami:
+    description: >
+      [REFRESH; Required] AMI ID for the EC2 launch template (determines OS and
+      base software).
+    default: ''
+  github-token:
+    description: >
+      [REFRESH; Required] GitHub PAT with 'repo' scope for runner registration.
+    default: ''
+  iam-instance-profile:
+    description: >
+      [REFRESH; Required] Name of the IAM instance profile granting AWS
+      permissions to runners.
+    default: ''
+  security-group-ids:
+    description: >
+      [REFRESH; Required] Space-separated list of security group IDs for EC2
+      runners (controls network traffic).
+    default: ''
+  subnet-ids:
+    description: >
+      [REFRESH; Required] Space-separated list of subnet IDs for launching EC2
+      runners.
+    default: ''
+
+  # REFRESH (APPLICATION - WITH SENSIBLE DEFAULTS);
+  # Default located in: src/inputs/defaults.ts
+  #
+  #
+  github-reg-token-refresh-min:
+    description: >
+      [REFRESH; Optional] Interval in minutes to refresh the GitHub registration
+      token for runners. Must be less than 60. (default: 30 minutes)
+    default: ''
+  idle-time-sec:
+    description: >
+      [REFRESH; Optional] Idle time in seconds before a runner instance is
+      considered for refresh/termination. (default: 300 seconds)
+    default: ''
+  max-runtime-min:
+    description: >
+      [REFRESH/PROVISION; Optional] The maximum runtime in minutes for a runner
+      instance before it is forcefully terminated. Can be defined in individual
+      provision to override refresh value (default: 30 minutes)
+    default: ''
+  pre-runner-script:
+    description: >
+      [REFRESH; Optional] A script executed on the EC2 instance before the
+      GitHub Actions runner starts. Useful for installing dependencies or
+      configuring the environment. A default script is provided if not
+      specified.
+    default: ''
+  resource-class-config:
+    description: >
+      [REFRESH; Optional] JSON configuration for resource classes defining
+      minimum CPU and memory requirements. Example: {"large": {"cpu": 4, "mmem":
+      1024}, "xlarge": {"cpu": 8, "mmem": 2048}} Note: These values are parsed
+      and validated. (Defaults provided if not specified).
+    default: ''
+
+  # Mode-specific inputs
+  # PROVISION (APPLICATION - REQUIRED); Defaults must be ''
+  #
+  #
+  ##### NO APPLICATION REQUIRED FOR PROVISION
+
+  # PROVISION (APPLICATION - WITH SENSIBLE DEFAULTS);
+  # Default located in: src/inputs/defaults.ts
+  #
+  #
+  instance-count:
+    description: >
+      [PROVISION; Optional] The number of EC2 instances to provision (default:
+      1).
+    default: ''
+  usage-class:
+    description: >
+      [PROVISION; Optional] The usage class for EC2 instances, determining
+      pricing model (e.g., 'spot' or 'on-demand'). (default: 'spot')
+    default: ''
+  allowed-instance-types:
+    description: >
+      [PROVISION; Optional] A space-separated list of allowed EC2 instance type
+      patterns (e.g., 'c*' 'm*' 'r*'). Defines instance types considered during
+      provisioning. (default: 'c* m* r*')
+    default: ''
+
+  #
+  #
+  # REFRESH; NO REQUIRED INPUT 🍻😭 - so simple
+  #
+  #
+
+# Define your outputs here.
+outputs:
+  ids:
+    description: >
+      [PROVISION] An array of provisioned EC2 instance IDs (string[]). Intended
+      for use with multiple jobs/parallelized/matrices when instance-count > 1.
+  id:
+    description: >
+      [PROVISION] The first EC2 instance ID from the provisioned list.
+      Convenient when instance-count is 1.
+
+runs:
+  using: node20
+  main: dist/index.js

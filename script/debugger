@@ -1,0 +1,87 @@
+#!/usr/bin/env node
+import { spawnSync } from 'child_process'
+
+function printBanner(message) {
+  const formattedMessage = `# ${message} #`
+  const border = '#'.repeat(formattedMessage.length)
+
+  console.log(border)
+  console.log(formattedMessage)
+  console.log(border)
+}
+
+function run(args) {
+  const result = spawnSync('npx', args, { stdio: 'inherit' })
+  return result.status
+}
+
+// Determine the workflow based on environment variables
+const secondRefresh = process.env.SECOND_REFRESH
+const secondProvision = process.env.SECOND_PROVISION
+const cleanup = process.env.CLEANUP
+
+const headlines = ["RUNNING: REFRESH -> PROVISION -> RELEASE"]
+secondRefresh === 'true' && headlines.push("-> 2ND REFRESH")
+secondProvision === 'true' && headlines.push("-> 2ND PROVISION")
+cleanup === 'true' && headlines.push("-> CLEANUP")
+printBanner(headlines.join(' '))
+
+// NOTE: first run will always return 0 exit codes even if action fails
+// .So cannot conditionally depend provision running on success of refresh
+// .THIS IS OK as this more closely simulates our distributed action
+printBanner('RUNNING: REFRESH')
+run([
+  '@github/local-action',
+  '.',
+  'src/main.ts',
+  '.local-envs/.env.refresh.test'
+])
+
+printBanner('RUNNING: PROVISION')
+run([
+  '@github/local-action',
+  '.',
+  'src/main.ts',
+  '.local-envs/.env.provision.test'
+])
+
+printBanner('RUNNING: RELEASE')
+run([
+  '@github/local-action',
+  '.',
+  'src/main.ts',
+  '.local-envs/.env.release.test'
+])
+
+// 2nd refresh for (any) threshold termination
+if (secondRefresh === 'true') {
+  printBanner('RUNNING: 2ND REFRESH')
+  run([
+    '@github/local-action',
+    '.',
+    'src/main.ts',
+    '.local-envs/.env.refresh.test'
+  ])
+}
+
+// 2nd provision for (any) instance pickups
+if (secondProvision === 'true') {
+  printBanner('RUNNING: 2ND PROVISION')
+  run([
+    '@github/local-action',
+    '.',
+    'src/main.ts',
+    '.local-envs/.env.provision.test'
+  ])
+}
+
+// Only run cleanup if CLEANUP environment variable is set to true
+if (cleanup === 'true') {
+  printBanner('RUNNING: CLEANUP')
+  run([
+    '@github/local-action',
+    '.',
+    'src/main.ts',
+    '.local-envs/.env.cleanup.test'
+  ])
+}

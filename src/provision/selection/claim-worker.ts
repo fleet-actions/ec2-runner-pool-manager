@@ -124,7 +124,6 @@ export async function handleUnhealthyClaimedInstances(
 ) {
   const { ids, runId, ddbOps } = inputs
   const now = Date.now()
-  // TODO: Claimed state duration needs to be an input as this is dependent startup of created instances
   const past = new Date(now + -1 * 60 * 1000).toISOString()
 
   core.info(`Marking unhealthy claimed instances for termination: (${ids})`)
@@ -133,9 +132,9 @@ export async function handleUnhealthyClaimedInstances(
       ddbOps.instanceStateTransition({
         id,
         expectedRunID: runId,
-        newRunID: '', // important so that refresh does not pick this up
+        newRunID: '', // important so that release does not pick this up (no longer registered against this run)
         expectedState: 'claimed',
-        newState: 'claimed',
+        newState: 'claimed', // no state change
         newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
         conditionSelectsUnexpired: true
       })

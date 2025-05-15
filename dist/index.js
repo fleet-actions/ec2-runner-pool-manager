@@ -31334,13 +31334,16 @@ const RESOURCE_CLASS_CONFIG_DEFAULT = {
     '12xlarge': { cpu: 48, mmem: 98304 },
     '16xlarge': { cpu: 64, mmem: 131072 }
 };
+// export const DEFAULT_SCRIPT = `
+// sudo dnf update -y
+// sudo dnf install docker git libicu -y
+// sudo systemctl enable docker
+// sudo systemctl start docker
+// `
+// NOTE: As we are deferring to AMIs in https://github.com/runs-on/runner-images-for-aws
+// default script can be empty (docker, git, libicu already installed)
 const DEFAULT_SCRIPT = `
-sudo dnf update -y
-sudo dnf install docker git libicu -y
-sudo systemctl enable docker
-sudo systemctl start docker
-echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
-cat /var/log/user-data-completion.log
+echo "hello world"
 `;
 const REFRESH_DEFAULTS = {
     'github-reg-token-refresh-min': 30,
@@ -55647,8 +55650,14 @@ mkdir -p actions-runner && cd actions-runner
 
 ### USER-DEFINED METADATA
 echo "starting user data..."
-echo "${input.userData}" > pre-runner-script.sh
-source pre-runner-script.sh
+cat <<EOF> pre-runner-script.sh
+${input.userData}
+EOF
+
+chmod +x pre-runner-script.sh
+sudo ./pre-runner-script.sh
+echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
+cat /var/log/user-data-completion.log
 
 ### INPUTS FROM JS
 TABLE_NAME="${tableName}"

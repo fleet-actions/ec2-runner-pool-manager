@@ -47,8 +47,14 @@ mkdir -p actions-runner && cd actions-runner
 
 ### USER-DEFINED METADATA
 echo "starting user data..."
-echo "${input.userData}" > pre-runner-script.sh
-source pre-runner-script.sh
+cat <<EOF> pre-runner-script.sh
+${input.userData}
+EOF
+
+chmod +x pre-runner-script.sh
+sudo ./pre-runner-script.sh
+echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
+cat /var/log/user-data-completion.log
 
 ### INPUTS FROM JS
 TABLE_NAME="${tableName}"

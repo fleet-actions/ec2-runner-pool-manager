@@ -10,13 +10,17 @@ export const RESOURCE_CLASS_CONFIG_DEFAULT: ResourceClassConfigInput = {
   '16xlarge': { cpu: 64, mmem: 131072 }
 }
 
+// export const DEFAULT_SCRIPT = `
+// sudo dnf update -y
+// sudo dnf install docker git libicu -y
+// sudo systemctl enable docker
+// sudo systemctl start docker
+// `
+
+// NOTE: As we are deferring to AMIs in https://github.com/runs-on/runner-images-for-aws
+// default script can be empty (docker, git, libicu already installed)
 export const DEFAULT_SCRIPT = `
-sudo dnf update -y
-sudo dnf install docker git libicu -y
-sudo systemctl enable docker
-sudo systemctl start docker
-echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
-cat /var/log/user-data-completion.log
+echo "hello world"
 `
 
 export const REFRESH_DEFAULTS = {

@@ -51280,11 +51280,7 @@ Instance (${id}):
             if (err.name === 'ConditionalCheckFailedException') {
                 // Inspect the failed item returned by DynamoDB
                 coreExports.warning(`State transition failed for instance ${id}`);
-                // NOTE: err.Item works but fallback on get
-                // .due to ReturnValuesOnConditionCheckFailure with testing integrations
-                // https://github.com/architect/dynalite/issues/182
-                const failedItem = (err.Item ||
-                    (await this.getGenericItem(id, true)));
+                const failedItem = (await this.getGenericItem(id, true)) || {};
                 if (failedItem.state !== expectedState) {
                     coreExports.warning(`Conditional failure: state mismatch (expected=${expectedState}, actual=${failedItem.state}) 📝`);
                 }
@@ -51329,11 +51325,7 @@ Instance (${id}):
         catch (err) {
             if (err.name === 'ConditionalCheckFailedException') {
                 coreExports.warning(`Instance ${id} already exists; skipping registration`);
-                // NOTE: err.Item works but fallback on get
-                // .due to ReturnValuesOnConditionCheckFailure with testing integrations
-                // https://github.com/architect/dynalite/issues/182
-                const failedItem = (err.Item ||
-                    (await this.getGenericItem(id, true)));
+                const failedItem = (await this.getGenericItem(id, true)) || {};
                 if (failedItem) {
                     const fRunId = failedItem.runId;
                     coreExports.warning(`See failed item: ${JSON.stringify(failedItem)}`);
@@ -51382,8 +51374,7 @@ Instance (${id}):
         }
         catch (err) {
             if (err.name === 'ConditionalCheckFailedException') {
-                const failedItem = (err.Item ||
-                    (await this.getGenericItem(id, true)));
+                const failedItem = (await this.getGenericItem(id, true)) || {};
                 coreExports.warning(`Isolation check failed for instance ${id}: runId mismatch. Recorded runid (${failedItem.runId}); Expected runid (${runId})`);
             }
             coreExports.error(`Failed to delete instance ${id}: ${err}`);

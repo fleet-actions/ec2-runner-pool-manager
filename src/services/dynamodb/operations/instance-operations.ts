@@ -264,11 +264,7 @@ Instance (${id}):
         // Inspect the failed item returned by DynamoDB
         core.warning(`State transition failed for instance ${id}`)
 
-        // NOTE: err.Item works but fallback on get
-        // .due to ReturnValuesOnConditionCheckFailure with testing integrations
-        // https://github.com/architect/dynalite/issues/182
-        const failedItem = (err.Item ||
-          (await this.getGenericItem(id, true))) as Record<string, any>
+        const failedItem = (await this.getGenericItem(id, true)) || {}
 
         if (failedItem.state !== expectedState) {
           core.warning(
@@ -328,11 +324,7 @@ Instance (${id}):
       if (err.name === 'ConditionalCheckFailedException') {
         core.warning(`Instance ${id} already exists; skipping registration`)
 
-        // NOTE: err.Item works but fallback on get
-        // .due to ReturnValuesOnConditionCheckFailure with testing integrations
-        // https://github.com/architect/dynalite/issues/182
-        const failedItem = (err.Item ||
-          (await this.getGenericItem(id, true))) as Record<string, any>
+        const failedItem = (await this.getGenericItem(id, true)) || {}
 
         if (failedItem) {
           const fRunId = failedItem.runId
@@ -393,8 +385,7 @@ Instance (${id}):
       return id // 🔍 so we know which id successfully deleted
     } catch (err: any) {
       if (err.name === 'ConditionalCheckFailedException') {
-        const failedItem = (err.Item ||
-          (await this.getGenericItem(id, true))) as Record<string, any>
+        const failedItem = (await this.getGenericItem(id, true)) || {}
 
         core.warning(
           `Isolation check failed for instance ${id}: runId mismatch. Recorded runid (${failedItem.runId}); Expected runid (${runId})`

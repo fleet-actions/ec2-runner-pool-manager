@@ -41340,7 +41340,7 @@ async function handleUnhealthyClaimedInstances(inputs) {
             newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
             conditionSelectsUnexpired: true
         });
-        coreExports.info(`Successfully marked unhealthy claimed instance for termination...`);
+        coreExports.info(`Successfully marked unhealthy claimed instance for termination (${id})...`);
     }
     catch (e) {
         coreExports.warning(`Failed to mark instance ${id} for termination. Expect error on release mode - ${e}`);

@@ -145,7 +145,7 @@ export async function handleUnhealthyClaimedInstances(
     })
 
     core.info(
-      `Successfully marked unhealthy claimed instance for termination...`
+      `Successfully marked unhealthy claimed instance for termination (${id})...`
     )
   } catch (e) {
     core.warning(

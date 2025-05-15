@@ -41286,6 +41286,11 @@ async function claimWorker(input) {
         const instanceHealth = await ddbOps.heartbeatOperations.isInstanceHealthy(id);
         if (instanceHealth.state !== HeartbeatOperations.HEALTHY) {
             coreExports.info(`[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Retrying...`);
+            await handleUnhealthyClaimedInstances({
+                id,
+                runId,
+                ddbOps: ddbOps.instanceOperations
+            });
             continue;
         }
         // if reaches end of while condition, return
@@ -41317,6 +41322,28 @@ async function attemptToClaimInstance(input) {
     }
     catch (e) {
         coreExports.warning(`Failed to claim instance ${id}; See error in transition ${e}`);
+        return false;
+    }
+}
+async function handleUnhealthyClaimedInstances(inputs) {
+    const { id, runId, ddbOps } = inputs;
+    try {
+        const now = Date.now();
+        const past = new Date(now + -1 * 60 * 1000).toISOString();
+        coreExports.info(`Marking unhealthy claimed instance for termination: (${id})`);
+        await ddbOps.instanceStateTransition({
+            id,
+            expectedRunID: runId,
+            newRunID: '', // important so that release does not pick this up (no longer registered against this run)
+            expectedState: 'claimed',
+            newState: 'claimed', // no state change
+            newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
+            conditionSelectsUnexpired: true
+        });
+        coreExports.info(`Successfully marked unhealthy claimed instance for termination...`);
+    }
+    catch (e) {
+        coreExports.warning(`Failed to mark instance ${id} for termination. Expect error on release mode - ${e}`);
         return false;
     }
 }

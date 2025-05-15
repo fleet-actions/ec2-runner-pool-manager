@@ -63,6 +63,11 @@ export async function claimWorker(input: ClaimWorkerInput): ClaimWorkerOutput {
       core.info(
         `[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Retrying...`
       )
+      await handleUnhealthyClaimedInstances({
+        id,
+        runId,
+        ddbOps: ddbOps.instanceOperations
+      })
       continue
     }
 
@@ -114,7 +119,7 @@ export async function attemptToClaimInstance(
 // This is done by modifying the threshold to be in the past (say 1 min in past)
 // Leaving the claimed state, but emptying the run id
 export interface HandleUnhealthyClaimedInstancesInput {
-  ids: string[]
+  id: string
   runId: string
   ddbOps: InstanceOperations
 }
@@ -122,25 +127,30 @@ export interface HandleUnhealthyClaimedInstancesInput {
 export async function handleUnhealthyClaimedInstances(
   inputs: HandleUnhealthyClaimedInstancesInput
 ) {
-  const { ids, runId, ddbOps } = inputs
-  const now = Date.now()
-  const past = new Date(now + -1 * 60 * 1000).toISOString()
+  const { id, runId, ddbOps } = inputs
+  try {
+    const now = Date.now()
+    const past = new Date(now + -1 * 60 * 1000).toISOString()
 
-  core.info(`Marking unhealthy claimed instances for termination: (${ids})`)
-  await Promise.allSettled(
-    ids.map((id) =>
-      ddbOps.instanceStateTransition({
-        id,
-        expectedRunID: runId,
-        newRunID: '', // important so that release does not pick this up (no longer registered against this run)
-        expectedState: 'claimed',
-        newState: 'claimed', // no state change
-        newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
-        conditionSelectsUnexpired: true
-      })
+    core.info(`Marking unhealthy claimed instance for termination: (${id})`)
+
+    await ddbOps.instanceStateTransition({
+      id,
+      expectedRunID: runId,
+      newRunID: '', // important so that release does not pick this up (no longer registered against this run)
+      expectedState: 'claimed',
+      newState: 'claimed', // no state change
+      newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
+      conditionSelectsUnexpired: true
+    })
+
+    core.info(
+      `Successfully marked unhealthy claimed instance for termination...`
     )
-  )
-  core.info(
-    `Successfully marked unhealthy claimed instances for termination...`
-  )
+  } catch (e) {
+    core.warning(
+      `Failed to mark instance ${id} for termination. Expect error on release mode - ${e}`
+    )
+    return false
+  }
 }

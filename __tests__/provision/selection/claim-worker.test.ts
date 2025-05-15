@@ -197,7 +197,8 @@ describe('claimWorker', () => {
       `[CLAIM WORKER ${workerNum}] Instance (${instanceHealthy.id}) is claimed and healthy`
     )
     expect(mockPoolPickupManager.pickup).toHaveBeenCalledTimes(2)
-    expect(mockInstanceOps.instanceStateTransition).toHaveBeenCalledTimes(2) // Claim attempted for both
+    // 1 for idle -> claim, 2 for marking, 3 for picking up another instance
+    expect(mockInstanceOps.instanceStateTransition).toHaveBeenCalledTimes(3) // Claim attempted for both
     expect(mockHeartbeatOps.isInstanceHealthy).toHaveBeenCalledTimes(2)
     expect(mockHeartbeatOps.isInstanceHealthy).toHaveBeenCalledWith(
       instanceUnhealthy.id

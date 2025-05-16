@@ -57,7 +57,7 @@ export async function makeFleetAttempt(
       uniqueId
     })
 
-    core.info(
+    core.debug(
       `Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`
     )
 

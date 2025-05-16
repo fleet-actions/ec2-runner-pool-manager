@@ -41710,7 +41710,7 @@ async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
             targetCapacity,
             uniqueId
         });
-        coreExports.info(`Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`);
+        coreExports.debug(`Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`);
         // 2. Use FleetOperations to make the API call
         // Assuming ec2Client is available from input or a service provider
         const response = await input.ec2Ops.createFleet(fleetInput);
@@ -41806,7 +41806,7 @@ async function creation(input) {
     coreExports.info('starting creation routine...');
     coreExports.debug(
     // pollutes info log
-    `recieved: ${JSON.stringify({ ...input, ec2Ops: '', ddbOps: '', resourceClassConfig: '' })}`);
+    `recieved: ${JSON.stringify({ ...input, ec2Ops: '', ddbOps: '', resourceClassConfig: '', ghRegistrationToken: '' })}`);
     if (input.numInstancesRequired === 0) {
         coreExports.info('creation routine terminated, no instances needed to create...');
         return {
@@ -54331,7 +54331,7 @@ async function provision(inputs) {
     // validateProvisionInputs()
     // .given 'merged', validate presence of values. IE: resource pool URLs, etc.
     const composedInputs = await composeInputs(inputs, ddbService.getGeneralMetadataOperations());
-    coreExports.debug(`Composed: ${JSON.stringify(composedInputs)}`);
+    coreExports.debug(`Composed: ${JSON.stringify({ ...composedInputs, ghRegistrationToken: '' })}`);
     // SELECTION
     // selection()
     // .given resource pool, and requirements, pickup valid instance ids

@@ -29,7 +29,9 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     ddbService.getGeneralMetadataOperations()
   )
 
-  core.debug(`Composed: ${JSON.stringify(composedInputs)}`)
+  core.debug(
+    `Composed: ${JSON.stringify({ ...composedInputs, ghRegistrationToken: '' })}`
+  )
 
   // SELECTION
   // selection()

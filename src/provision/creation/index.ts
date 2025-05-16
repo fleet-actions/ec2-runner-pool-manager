@@ -7,7 +7,7 @@ export async function creation(input: CreationInput): Promise<CreationOuput> {
   core.info('starting creation routine...')
   core.debug(
     // pollutes info log
-    `recieved: ${JSON.stringify({ ...input, ec2Ops: '', ddbOps: '', resourceClassConfig: '' })}`
+    `recieved: ${JSON.stringify({ ...input, ec2Ops: '', ddbOps: '', resourceClassConfig: '', ghRegistrationToken: '' })}`
   )
 
   if (input.numInstancesRequired === 0) {

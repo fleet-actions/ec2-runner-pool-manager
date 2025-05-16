@@ -80,12 +80,15 @@ export function buildSpotOptions(): SpotOptionsRequest {
 export function buildFleetTagSpecifications(
   uniqueId: string
 ): TagSpecification[] {
-  const tags: Tag[] = [
+  const fleetTags: Tag[] = [
     { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
-    { Key: 'Purpose', Value: 'RunnerPoolProvisioning' },
-    { Key: 'AllowSelfTermination', Value: 'true' }
+    { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
   ]
-  return [{ ResourceType: 'fleet', Tags: tags }]
+  const instanceTags: Tag[] = [{ Key: 'AllowSelfTermination', Value: 'true' }]
+  return [
+    { ResourceType: 'fleet', Tags: fleetTags },
+    { ResourceType: 'instance', Tags: instanceTags }
+  ]
 }
 
 /**

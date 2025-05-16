@@ -208,7 +208,7 @@ while true; do
   "PK": { "S": "TYPE#$INSTANCE_ENTITY_TYPE" },
   "SK": { "S": "ID#$INSTANCE_ID" }
 }
-JSON  
+JSON
 
   # 1) Try fetching threshold, retry on API error
   if ! THRESHOLD=$(

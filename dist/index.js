@@ -41596,12 +41596,15 @@ function buildSpotOptions() {
  * Creates tag specifications for the fleet resources.
  */
 function buildFleetTagSpecifications(uniqueId) {
-    const tags = [
+    const fleetTags = [
         { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
-        { Key: 'Purpose', Value: 'RunnerPoolProvisioning' },
-        { Key: 'AllowSelfTermination', Value: 'true' }
+        { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
     ];
-    return [{ ResourceType: 'fleet', Tags: tags }];
+    const instanceTags = [{ Key: 'AllowSelfTermination', Value: 'true' }];
+    return [
+        { ResourceType: 'fleet', Tags: fleetTags },
+        { ResourceType: 'instance', Tags: instanceTags }
+    ];
 }
 function buildFleetCreationInput(input) {
     const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId } = input;
@@ -55803,7 +55806,7 @@ while true; do
   "PK": { "S": "TYPE#$INSTANCE_ENTITY_TYPE" },
   "SK": { "S": "ID#$INSTANCE_ID" }
 }
-JSON  
+JSON
 
   # 1) Try fetching threshold, retry on API error
   if ! THRESHOLD=$(

@@ -33,7 +33,7 @@ describe('Launch Template Helpers', () => {
     it('should throw error when LT names do not match', () => {
       const newData = { ...baseLTData, name: 'different-name' }
       expect(() => hasLTChanged(newData, baseLTData)).toThrow(
-        /new lt name found/
+        /Unable to handle changing LT names/
       )
     })
 

@@ -54564,7 +54564,7 @@ function hasLTChanged(newData, storedData) {
     // Compare primitive properties
     // TODO: Handle changing LT names
     if (newData.name !== storedData.name)
-        throw new Error(`new lt name found: (${storedData.name}). does not match stored name (${newData.name}), unable to handle changing LT names...`);
+        throw new Error(`new lt name=(${newData.name}). stored lt name=(${storedData.name}). Not the same. Unable to handle changing LT names...`);
     if (newData.ami !== storedData.ami)
         messages.push(`new ami detected (${newData.ami}) (old: ${storedData.ami})...`);
     if (newData.iamInstanceProfile !== storedData.iamInstanceProfile)

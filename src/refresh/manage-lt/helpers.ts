@@ -8,7 +8,7 @@ export function hasLTChanged(newData: LTDatav2, storedData: LTDatav2) {
   // TODO: Handle changing LT names
   if (newData.name !== storedData.name)
     throw new Error(
-      `new lt name found: (${storedData.name}). does not match stored name (${newData.name}), unable to handle changing LT names...`
+      `new lt name=(${newData.name}). stored lt name=(${storedData.name}). Not the same. Unable to handle changing LT names...`
     )
 
   if (newData.ami !== storedData.ami)

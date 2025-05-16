@@ -82,7 +82,8 @@ export function buildFleetTagSpecifications(
 ): TagSpecification[] {
   const tags: Tag[] = [
     { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
-    { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
+    { Key: 'Purpose', Value: 'RunnerPoolProvisioning' },
+    { Key: 'AllowSelfTermination', Value: 'true' }
   ]
   return [{ ResourceType: 'fleet', Tags: tags }]
 }

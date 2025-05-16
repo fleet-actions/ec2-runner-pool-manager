@@ -66,7 +66,8 @@ describe('buildFleetCreationInput fn', () => {
           ResourceType: 'fleet',
           Tags: [
             { Key: 'Name', Value: 'ec2-runner-pool-fleet-test-fleet-123' },
-            { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
+            { Key: 'Purpose', Value: 'RunnerPoolProvisioning' },
+            { Key: 'AllowSelfTermination', Value: 'true' }
           ]
         }
       ],

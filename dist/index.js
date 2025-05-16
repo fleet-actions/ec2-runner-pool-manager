@@ -41598,7 +41598,8 @@ function buildSpotOptions() {
 function buildFleetTagSpecifications(uniqueId) {
     const tags = [
         { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
-        { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
+        { Key: 'Purpose', Value: 'RunnerPoolProvisioning' },
+        { Key: 'AllowSelfTermination', Value: 'true' }
     ];
     return [{ ResourceType: 'fleet', Tags: tags }];
 }
@@ -55619,6 +55620,7 @@ function requireSha256 () {
 var sha256Exports = requireSha256();
 var sha256 = /*@__PURE__*/getDefaultExportFromCjs(sha256Exports);
 
+/* eslint-disable no-useless-escape */
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
 // .ddb state update (ud-completed)
@@ -55632,6 +55634,7 @@ var sha256 = /*@__PURE__*/getDefaultExportFromCjs(sha256Exports);
 function addBuiltInScript(tableName, context, input) {
     const { VALUE_COLUMN_NAME: BOOTSTRAP_COLUMN_NAME, ENTITY_TYPE: BOOTSTRAP_ENTITY, STATUS: BOOTSTRAP_STATUS } = BootstrapOperations;
     const { VALUE_COLUMN_NAME: HEARTBEAT_COLUMN_NAME, ENTITY_TYPE: HEARTBEAT_ENTITY, STATUS: HEARTBEAT_STATUS, PERIOD_SECONDS: HEARTBEAT_PERIOD_SECONDS } = HeartbeatOperations;
+    const INSTANCE_ENTITY_TYPE = InstanceOperations.ENTITY_TYPE;
     // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
     const WRAPPER_SCRIPT = `#!/bin/bash
 
@@ -55643,7 +55646,7 @@ mkdir -p actions-runner && cd actions-runner
 
 ### USER-DEFINED METADATA
 echo "starting user data..."
-cat <<EOF> pre-runner-script.sh
+cat <<'EOF'> pre-runner-script.sh
 ${input.userData}
 EOF
 
@@ -55664,6 +55667,7 @@ HEARTBEAT_COLUMN_NAME="${HEARTBEAT_COLUMN_NAME}"
 HEARTBEAT_ENTITY="${HEARTBEAT_ENTITY}"
 HEARTBEAT_STATE="${HEARTBEAT_STATUS.PING}"
 HEARTBEAT_PERIOD_SECONDS=${HEARTBEAT_PERIOD_SECONDS}
+INSTANCE_ENTITY_TYPE=${INSTANCE_ENTITY_TYPE}
 
 ### TEST INPUTS
 # TABLE_NAME="ci-test-partial-ci-test-partial-ec2-runner-pool-table-test"
@@ -55728,7 +55732,6 @@ if [ $CONFIG_EXIT_CODE -ne 0 ]; then
 fi
 
 echo "GH Registration script completed..."
-export TABLE_NAME HEARTBEAT_COLUMN_NAME HEARTBEAT_ENTITY HEARTBEAT_STATE HEARTBEAT_PERIOD_SECONDS INSTANCE_ID
 
 ### UPDATING DDB WITH UD-REG COMPLETE
 DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -55748,6 +55751,11 @@ aws dynamodb put-item \
   --item file://"$TMPFILE"
 rm -f "$TMPFILE"
 echo "UD-Registration completed communicated to DDB..."
+
+echo "exporting variables for async scripts (heartbeat & termination)"
+export TABLE_NAME INSTANCE_ID
+export HEARTBEAT_COLUMN_NAME HEARTBEAT_ENTITY HEARTBEAT_STATE HEARTBEAT_PERIOD_SECONDS
+export INSTANCE_ENTITY_TYPE 
 
 echo "Writing heartbeat script..."
 cat <<'EOF' > heartbeat.sh
@@ -55781,6 +55789,66 @@ EOF
 echo "Executing heartbeat in background..."
 chmod +x heartbeat.sh
 ./heartbeat.sh &
+
+echo "Writing termination script..."
+cat <<'EOF' > termination.sh
+#!/usr/bin/env bash
+INTERVAL=15
+
+while true; do
+  DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # 1) Try fetching threshold, retry on API error
+  if ! THRESHOLD=$(
+      aws dynamodb get-item \
+        --table-name "$TABLE_NAME" \
+        --key "{\"PK\":{\"S\":\"TYPE#$INSTANCE_ENTITY_TYPE\"},\"SK\":{\"S\":\"ID#$INSTANCE_ID\"}}" \
+        --query 'Item.threshold.S' \
+        --consistent-read \
+        --output text
+    ); then
+    echo "[$DATE] DynamoDB get-item failed; retrying in $INTERVAL s…" >&2
+    sleep $INTERVAL
+    continue
+  fi
+
+  echo "[$DATE] Fetched threshold: $THRESHOLD"
+
+  # 2) No data yet?
+  if [ -z "$THRESHOLD" ] || [ "$THRESHOLD" = "None" ]; then
+    echo "[$DATE] No threshold recorded yet or item not available; sleeping $INTERVAL s…" >&2
+    sleep $INTERVAL
+    continue
+  fi
+
+  # 3) Add buffer and compare
+  THRESHOLD_BUFFER=$(date -u -d "$THRESHOLD + 1 minute" +"%Y-%m-%dT%H:%M:%SZ")
+  NOW_S=$(date -u +%s)
+  TSB_S=$(date -u -d "$THRESHOLD_BUFFER" +%s)
+  DELTA_S=$(( TSB_S - NOW_S ))
+  echo "[$DATE] Difference: $DELTA_S seconds (threshold+buffer vs now)"
+
+  # 4) Self-terminate when due
+  if [ "$TSB_S" -lt "$NOW_S" ]; then
+    echo "[$DATE] Deadline passed; initiating self-termination…"
+    if aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"; then
+      echo "[$DATE] Termination API call succeeded; exiting."
+      break
+    else
+      echo "[$DATE] Termination call failed; retrying in $INTERVAL s…" >&2
+      sleep $INTERVAL
+      continue
+    fi
+  fi
+
+  echo "[$DATE] Not yet due; sleeping $INTERVAL s…"
+  sleep $INTERVAL
+done
+EOF
+
+echo "Executing termination script in background..."
+chmod +x termination.sh
+./termination.sh &
 
 ### STARTING RUNNER
 # echo "Running run.sh"

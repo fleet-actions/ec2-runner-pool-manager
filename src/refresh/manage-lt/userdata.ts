@@ -202,20 +202,29 @@ INTERVAL=15
 
 while true; do
   DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  TMPFILE=$(mktemp /tmp/ddb-item-instance.XXXXXX.json)
+  cat <<JSON > "$TMPFILE"
+{
+  "PK": { "S": "TYPE#$INSTANCE_ENTITY_TYPE" },
+  "SK": { "S": "ID#$INSTANCE_ID" }
+}
+JSON  
 
   # 1) Try fetching threshold, retry on API error
   if ! THRESHOLD=$(
       aws dynamodb get-item \
         --table-name "$TABLE_NAME" \
-        --key "{\"PK\":{\"S\":\"TYPE#$INSTANCE_ENTITY_TYPE\"},\"SK\":{\"S\":\"ID#$INSTANCE_ID\"}}" \
+        --key file://"$TMPFILE" \
         --query 'Item.threshold.S' \
         --consistent-read \
         --output text
     ); then
     echo "[$DATE] DynamoDB get-item failed; retrying in $INTERVAL s…" >&2
+    rm -f "$TMPFILE"
     sleep $INTERVAL
     continue
   fi
+  rm -f "$TMPFILE"
 
   echo "[$DATE] Fetched threshold: $THRESHOLD"
 

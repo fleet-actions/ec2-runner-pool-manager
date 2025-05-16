@@ -51173,13 +51173,15 @@ class InstanceOperations extends BasicOperations {
     }
     // 🔍 REFRESH (managing terminations)
     async instanceTermination({ id, expectedState, expectedRunID }) {
+        const now = Date.now();
+        const nowThreshold = new Date(now * 1000).toISOString();
         return await this.instanceStateTransition({
             id,
             expectedState,
             expectedRunID,
             newRunID: '',
             newState: 'terminated',
-            newThreshold: '',
+            newThreshold: nowThreshold,
             conditionSelectsUnexpired: false
         });
     }

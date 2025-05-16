@@ -121,13 +121,16 @@ export class InstanceOperations extends BasicOperations {
     expectedState: InstanceStates
     expectedRunID: string
   }) {
+    const now = Date.now()
+    const nowThreshold = new Date(now * 1000).toISOString()
+
     return await this.instanceStateTransition({
       id,
       expectedState,
       expectedRunID,
       newRunID: '',
       newState: 'terminated',
-      newThreshold: '',
+      newThreshold: nowThreshold,
       conditionSelectsUnexpired: false
     })
   }

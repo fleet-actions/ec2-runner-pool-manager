@@ -207,4 +207,36 @@ describe('claimWorker', () => {
       instanceHealthy.id
     )
   })
+
+  it('should mark the instance for termination if the instance is unhealthy', async () => {
+    const instanceUnhealthy = createMockInstance('i-unhealthy')
+    mockPoolPickupManager.pickup.mockResolvedValueOnce(instanceUnhealthy)
+    mockHeartbeatOps.isInstanceHealthy.mockResolvedValueOnce({
+      state: ActualHeartbeatOperations.UNHEALTHY
+    } as any) // For instanceUnhealthy
+
+    const result = await claimWorker(claimWorkerInput)
+    expect(result.payload).toEqual(null) // returns none
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining(`following instance is unhealthy`)
+    )
+
+    // expect initial transition
+    expect(mockInstanceOps.instanceStateTransition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRunID: '', // pickup from pool
+        expectedState: 'idle',
+        newState: 'claimed'
+      })
+    )
+    // expect following transition (marking for termination)
+    expect(mockInstanceOps.instanceStateTransition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        newRunID: '',
+        expectedState: 'claimed',
+        newState: 'claimed'
+      })
+    )
+  })
 })

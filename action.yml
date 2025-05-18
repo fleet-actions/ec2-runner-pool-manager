@@ -16,19 +16,17 @@ inputs:
     description: 'Input for mode: echo'
     default: 'Hello World!!!'
 
-  # Must be available for all modes: UNIVERSALLY REQUIRED
-  aws-region:
-    description: >
-      [ALL; Required] AWS region - region for your resources
-    required: true
+  # Must be available for all modes
   mode:
     description: >
       [ALL; Required] Operation mode (provision/release/refresh)
     required: true
-  table-name:
+  aws-region:
     description: >
-      [ALL; Required] DynamoDB table name - where state is stored
-    required: true
+      [ALL; Optional] AWS region - region for your resources (default:
+      'us-east-1')
+    required: false
+    default: ''
 
   # Mode-specific inputs
   # REFRESH (APPLICATION - REQUIRED); Defaults must be ''

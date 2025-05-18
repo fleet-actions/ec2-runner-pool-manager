@@ -17,7 +17,7 @@ import { InstanceOperations } from '../../services/dynamodb/operations/instance-
 // CLI examples: https://github.com/machulav/ec2-github-runner/blob/main/src/aws.js
 
 // USE:
-// $ tail -n 50 /var/log/user-data.log
+// $ tail -f /var/log/user-data.log
 // $ journalctl -t user-data
 
 export function addBuiltInScript(

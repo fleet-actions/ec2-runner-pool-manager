@@ -22,6 +22,9 @@ export const RESOURCE_CLASS_CONFIG_DEFAULT: ResourceClassConfigInput = {
 export const DEFAULT_SCRIPT = `
 echo "hello world"
 `
+export const BASE_DEFAULTS = {
+  'aws-region': process.env.AWS_REGION || 'us-east-1'
+}
 
 export const REFRESH_DEFAULTS = {
   'github-reg-token-refresh-min': 30,

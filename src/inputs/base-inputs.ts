@@ -1,5 +1,7 @@
 import * as github from '@actions/github'
+import * as core from '@actions/core'
 import { BaseInputs } from './types.js'
+import { BASE_DEFAULTS } from './defaults.js'
 import { getString } from './helpers.js'
 
 export function parseBaseInputs(): BaseInputs {
@@ -12,11 +14,15 @@ export function parseBaseInputs(): BaseInputs {
     : github.context.runId.toString()
 
   const tableName = `${githubRepoOwner}-${githubRepoName}-ci-table`
+  const awsRegion = getString('aws-region', false, BASE_DEFAULTS)
+  core.info(
+    `Using AWS REGION: ${awsRegion} - ${process.env.AWS_REGION ? `in env ${process.env.AWS_REGION}` : ''} `
+  )
 
   return {
     mode: getString('mode', true),
     tableName: tableName,
-    awsRegion: getString('aws-region', true),
+    awsRegion: awsRegion,
     githubRunId: githubRunId,
     githubRepoName: githubRepoName,
     githubRepoOwner: githubRepoOwner

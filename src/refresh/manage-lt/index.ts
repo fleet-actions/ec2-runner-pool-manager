@@ -12,7 +12,7 @@ export class LaunchTemplateManager {
     private githubContext: GitHubContext,
     private ec2Ops: ec2ltOps,
     private ddbOps: ddbltOps,
-    private ltName = 'runner-pool-base-lt'
+    private ltName = 'ci-launch-template'
   ) {
     this.ltName = `${this.githubContext.owner}-${this.githubContext.repo}-${ltName}`
   }

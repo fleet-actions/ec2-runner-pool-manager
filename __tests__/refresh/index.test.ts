@@ -9,10 +9,11 @@ import {
   manageRegistrationToken,
   manageMaxRuntimeMin,
   manageResourceClassConfiguration,
-  manageTerminations
+  manageTerminations,
+  manageTable
 } from '../../__fixtures__/refresh/fixture.js'
 import { manageLT } from '../../__fixtures__/refresh/manage-lt'
-
+// import { manageTable } from '../../src/refresh/manage-table/index.js'
 import { RefreshInputs } from '../../src/inputs/types.js'
 
 Object.entries({
@@ -26,6 +27,7 @@ Object.entries({
     manageMaxRuntimeMin,
     manageResourceClassConfiguration
   },
+  '../../src/refresh/manage-table': { manageTable },
   '../../src/refresh/manage-terminations': { manageTerminations },
   '../../src/refresh/manage-rt': {
     manageRegistrationToken
@@ -61,6 +63,11 @@ describe('refresh/index.ts', () => {
         ) as any // as InstanceType<typeof EC2Service>
       )
     })
+  })
+
+  it('calles on manage table', async () => {
+    await refresh(mockInputs)
+    expect(manageTable).toHaveBeenCalled()
   })
 
   it('manages subnet ids', async () => {

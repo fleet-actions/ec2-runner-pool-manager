@@ -37,3 +37,8 @@ export const manageTerminations =
   jest.fn<
     typeof import('../../src/refresh/manage-terminations.ts').manageTerminations
   >()
+
+export const manageTable =
+  jest.fn<
+    typeof import('../../src/refresh/manage-table/index.ts').manageTable
+  >()

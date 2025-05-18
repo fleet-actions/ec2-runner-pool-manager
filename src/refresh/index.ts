@@ -13,6 +13,7 @@ import {
   manageResourceClassConfiguration
 } from './manage-idempotent-states.js'
 import { manageTerminations } from './manage-terminations.js'
+import { manageTable } from './manage-table/index.js'
 
 import { RefreshInputs } from '../inputs/types.js'
 
@@ -53,6 +54,8 @@ export async function refresh(inputs: RefreshInputs): Promise<void> {
     owner: githubRepoOwner,
     repo: githubRepoName
   })
+
+  await manageTable(ddbService.getApplicationOperations())
 
   await manageIdleTime(idleTimeSec, ddbService.getIdleTimeOperations())
   await manageSubnetIds(subnetIds, ddbService.getSubnetOperations())

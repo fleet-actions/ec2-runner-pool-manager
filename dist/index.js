@@ -31315,9 +31315,10 @@ function parseBaseInputs() {
     const githubRunId = isNaN(githubExports.context.runId)
         ? process.env.RUN_ID || 'LOCAL_ID'
         : githubExports.context.runId.toString();
+    const tableName = `${githubRepoOwner}-${githubRepoName}-ci-table`;
     return {
         mode: getString('mode', true),
-        tableName: getString('table-name', true),
+        tableName: tableName,
         awsRegion: getString('aws-region', true),
         githubRunId: githubRunId,
         githubRepoName: githubRepoName,
@@ -31545,15 +31546,6 @@ function enrichMerged(input) {
     const resourceSpec = input.resourceClassConfig[input.resourceClass];
     return { ...input, resourceSpec };
 }
-
-let ApplicationOperations$3 = class ApplicationOperations {
-    client;
-    tableName;
-    constructor(client) {
-        this.client = client;
-        this.tableName = this.client.getTableName();
-    }
-};
 
 var HttpAuthLocation;
 (function (HttpAuthLocation) {
@@ -36199,6 +36191,28 @@ const parseRfc3339DateTimeWithOffset = (value) => {
     }
     return date;
 };
+const parseEpochTimestamp = (value) => {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    let valueAsDouble;
+    if (typeof value === "number") {
+        valueAsDouble = value;
+    }
+    else if (typeof value === "string") {
+        valueAsDouble = strictParseDouble(value);
+    }
+    else if (typeof value === "object" && value.tag === 1) {
+        valueAsDouble = value.value;
+    }
+    else {
+        throw new TypeError("Epoch timestamps must be expressed as floating point numbers or their string representation");
+    }
+    if (Number.isNaN(valueAsDouble) || valueAsDouble === Infinity || valueAsDouble === -Infinity) {
+        throw new TypeError("Epoch timestamps must be valid, non-Infinite, non-NaN numerics");
+    }
+    return new Date(Math.round(valueAsDouble * 1000));
+};
 const buildDate = (year, month, day, time) => {
     const adjustedMonth = month - 1;
     validateDayOfMonth(year, adjustedMonth, day);
@@ -38383,6 +38397,12 @@ const se_BatchWriteItemCommand = async (input, context) => {
     body = JSON.stringify(se_BatchWriteItemInput(input, context));
     return buildHttpRpcRequest$2(context, headers, "/", undefined, body);
 };
+const se_CreateTableCommand = async (input, context) => {
+    const headers = sharedHeaders$1("CreateTable");
+    let body;
+    body = JSON.stringify(_json(input));
+    return buildHttpRpcRequest$2(context, headers, "/", undefined, body);
+};
 const se_DeleteItemCommand = async (input, context) => {
     const headers = sharedHeaders$1("DeleteItem");
     let body;
@@ -38391,6 +38411,12 @@ const se_DeleteItemCommand = async (input, context) => {
 };
 const se_DescribeEndpointsCommand = async (input, context) => {
     const headers = sharedHeaders$1("DescribeEndpoints");
+    let body;
+    body = JSON.stringify(_json(input));
+    return buildHttpRpcRequest$2(context, headers, "/", undefined, body);
+};
+const se_DescribeTableCommand = async (input, context) => {
+    const headers = sharedHeaders$1("DescribeTable");
     let body;
     body = JSON.stringify(_json(input));
     return buildHttpRpcRequest$2(context, headers, "/", undefined, body);
@@ -38432,6 +38458,19 @@ const de_BatchWriteItemCommand = async (output, context) => {
     };
     return response;
 };
+const de_CreateTableCommand = async (output, context) => {
+    if (output.statusCode >= 300) {
+        return de_CommandError$2(output, context);
+    }
+    const data = await parseJsonBody$1(output.body, context);
+    let contents = {};
+    contents = de_CreateTableOutput(data);
+    const response = {
+        $metadata: deserializeMetadata$2(output),
+        ...contents,
+    };
+    return response;
+};
 const de_DeleteItemCommand = async (output, context) => {
     if (output.statusCode >= 300) {
         return de_CommandError$2(output, context);
@@ -38452,6 +38491,19 @@ const de_DescribeEndpointsCommand = async (output, context) => {
     const data = await parseJsonBody$1(output.body, context);
     let contents = {};
     contents = _json(data);
+    const response = {
+        $metadata: deserializeMetadata$2(output),
+        ...contents,
+    };
+    return response;
+};
+const de_DescribeTableCommand = async (output, context) => {
+    if (output.statusCode >= 300) {
+        return de_CommandError$2(output, context);
+    }
+    const data = await parseJsonBody$1(output.body, context);
+    let contents = {};
+    contents = de_DescribeTableOutput(data);
     const response = {
         $metadata: deserializeMetadata$2(output),
         ...contents,
@@ -39180,6 +39232,13 @@ const se_WriteRequests = (input, context) => {
         return se_WriteRequest(entry, context);
     });
 };
+const de_ArchivalSummary = (output, context) => {
+    return take(output, {
+        ArchivalBackupArn: expectString,
+        ArchivalDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        ArchivalReason: expectString,
+    });
+};
 const de_AttributeMap = (output, context) => {
     return Object.entries(output).reduce((acc, [key, value]) => {
         if (value === null) {
@@ -39250,6 +39309,12 @@ const de_BatchWriteItemRequestMap = (output, context) => {
         return acc;
     }, {});
 };
+const de_BillingModeSummary = (output, context) => {
+    return take(output, {
+        BillingMode: expectString,
+        LastUpdateToPayPerRequestDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+    });
+};
 const de_BinarySetAttributeValue = (output, context) => {
     const retVal = (output || [])
         .filter((e) => e != null)
@@ -39305,6 +39370,11 @@ const de_ConsumedCapacityMultiple = (output, context) => {
     });
     return retVal;
 };
+const de_CreateTableOutput = (output, context) => {
+    return take(output, {
+        TableDescription: (_) => de_TableDescription(_),
+    });
+};
 const de_DeleteItemOutput = (output, context) => {
     return take(output, {
         Attributes: (_) => de_AttributeMap(_, context),
@@ -39317,11 +39387,39 @@ const de_DeleteRequest = (output, context) => {
         Key: (_) => de_Key(_, context),
     });
 };
+const de_DescribeTableOutput = (output, context) => {
+    return take(output, {
+        Table: (_) => de_TableDescription(_),
+    });
+};
 const de_GetItemOutput = (output, context) => {
     return take(output, {
         ConsumedCapacity: (_) => de_ConsumedCapacity(_),
         Item: (_) => de_AttributeMap(_, context),
     });
+};
+const de_GlobalSecondaryIndexDescription = (output, context) => {
+    return take(output, {
+        Backfilling: expectBoolean,
+        IndexArn: expectString,
+        IndexName: expectString,
+        IndexSizeBytes: expectLong,
+        IndexStatus: expectString,
+        ItemCount: expectLong,
+        KeySchema: _json,
+        OnDemandThroughput: _json,
+        Projection: _json,
+        ProvisionedThroughput: (_) => de_ProvisionedThroughputDescription(_),
+        WarmThroughput: _json,
+    });
+};
+const de_GlobalSecondaryIndexDescriptionList = (output, context) => {
+    const retVal = (output || [])
+        .filter((e) => e != null)
+        .map((entry) => {
+        return de_GlobalSecondaryIndexDescription(entry);
+    });
+    return retVal;
 };
 const de_ItemCollectionKeyAttributeMap = (output, context) => {
     return Object.entries(output).reduce((acc, [key, value]) => {
@@ -39397,6 +39495,15 @@ const de_MapAttributeValue = (output, context) => {
         return acc;
     }, {});
 };
+const de_ProvisionedThroughputDescription = (output, context) => {
+    return take(output, {
+        LastDecreaseDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        LastIncreaseDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        NumberOfDecreasesToday: expectLong,
+        ReadCapacityUnits: expectLong,
+        WriteCapacityUnits: expectLong,
+    });
+};
 const de_PutItemInputAttributeMap = (output, context) => {
     return Object.entries(output).reduce((acc, [key, value]) => {
         if (value === null) {
@@ -39427,6 +39534,37 @@ const de_QueryOutput = (output, context) => {
         ScannedCount: expectInt32,
     });
 };
+const de_ReplicaDescription = (output, context) => {
+    return take(output, {
+        GlobalSecondaryIndexes: _json,
+        KMSMasterKeyId: expectString,
+        OnDemandThroughputOverride: _json,
+        ProvisionedThroughputOverride: _json,
+        RegionName: expectString,
+        ReplicaInaccessibleDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        ReplicaStatus: expectString,
+        ReplicaStatusDescription: expectString,
+        ReplicaStatusPercentProgress: expectString,
+        ReplicaTableClassSummary: (_) => de_TableClassSummary(_),
+        WarmThroughput: _json,
+    });
+};
+const de_ReplicaDescriptionList = (output, context) => {
+    const retVal = (output || [])
+        .filter((e) => e != null)
+        .map((entry) => {
+        return de_ReplicaDescription(entry);
+    });
+    return retVal;
+};
+const de_RestoreSummary = (output, context) => {
+    return take(output, {
+        RestoreDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        RestoreInProgress: expectBoolean,
+        SourceBackupArn: expectString,
+        SourceTableArn: expectString,
+    });
+};
 const de_SecondaryIndexesCapacityMap = (output, context) => {
     return Object.entries(output).reduce((acc, [key, value]) => {
         if (value === null) {
@@ -39435,6 +39573,50 @@ const de_SecondaryIndexesCapacityMap = (output, context) => {
         acc[key] = de_Capacity(value);
         return acc;
     }, {});
+};
+const de_SSEDescription = (output, context) => {
+    return take(output, {
+        InaccessibleEncryptionDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        KMSMasterKeyArn: expectString,
+        SSEType: expectString,
+        Status: expectString,
+    });
+};
+const de_TableClassSummary = (output, context) => {
+    return take(output, {
+        LastUpdateDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        TableClass: expectString,
+    });
+};
+const de_TableDescription = (output, context) => {
+    return take(output, {
+        ArchivalSummary: (_) => de_ArchivalSummary(_),
+        AttributeDefinitions: _json,
+        BillingModeSummary: (_) => de_BillingModeSummary(_),
+        CreationDateTime: (_) => expectNonNull(parseEpochTimestamp(expectNumber(_))),
+        DeletionProtectionEnabled: expectBoolean,
+        GlobalSecondaryIndexes: (_) => de_GlobalSecondaryIndexDescriptionList(_),
+        GlobalTableVersion: expectString,
+        ItemCount: expectLong,
+        KeySchema: _json,
+        LatestStreamArn: expectString,
+        LatestStreamLabel: expectString,
+        LocalSecondaryIndexes: _json,
+        MultiRegionConsistency: expectString,
+        OnDemandThroughput: _json,
+        ProvisionedThroughput: (_) => de_ProvisionedThroughputDescription(_),
+        Replicas: (_) => de_ReplicaDescriptionList(_),
+        RestoreSummary: (_) => de_RestoreSummary(_),
+        SSEDescription: (_) => de_SSEDescription(_),
+        StreamSpecification: _json,
+        TableArn: expectString,
+        TableClassSummary: (_) => de_TableClassSummary(_),
+        TableId: expectString,
+        TableName: expectString,
+        TableSizeBytes: expectLong,
+        TableStatus: expectString,
+        WarmThroughput: _json,
+    });
 };
 const de_TransactionCanceledException = (output, context) => {
     return take(output, {
@@ -39983,6 +40165,26 @@ class BatchWriteItemCommand extends Command
     .build() {
 }
 
+class CreateTableCommand extends Command
+    .classBuilder()
+    .ep({
+    ...commonParams$2,
+    ResourceArn: { type: "contextParams", name: "TableName" },
+})
+    .m(function (Command, cs, config, o) {
+    return [
+        getSerdePlugin(config, this.serialize, this.deserialize),
+        getEndpointPlugin(config, Command.getEndpointParameterInstructions()),
+    ];
+})
+    .s("DynamoDB_20120810", "CreateTable", {})
+    .n("DynamoDBClient", "CreateTableCommand")
+    .f(void 0, void 0)
+    .ser(se_CreateTableCommand)
+    .de(de_CreateTableCommand)
+    .build() {
+}
+
 class DeleteItemCommand extends Command
     .classBuilder()
     .ep({
@@ -40000,6 +40202,26 @@ class DeleteItemCommand extends Command
     .f(void 0, void 0)
     .ser(se_DeleteItemCommand)
     .de(de_DeleteItemCommand)
+    .build() {
+}
+
+class DescribeTableCommand extends Command
+    .classBuilder()
+    .ep({
+    ...commonParams$2,
+    ResourceArn: { type: "contextParams", name: "TableName" },
+})
+    .m(function (Command, cs, config, o) {
+    return [
+        getSerdePlugin(config, this.serialize, this.deserialize),
+        getEndpointPlugin(config, Command.getEndpointParameterInstructions()),
+    ];
+})
+    .s("DynamoDB_20120810", "DescribeTable", {})
+    .n("DynamoDBClient", "DescribeTableCommand")
+    .f(void 0, void 0)
+    .ser(se_DescribeTableCommand)
+    .de(de_DescribeTableCommand)
     .build() {
 }
 
@@ -40099,6 +40321,28 @@ var WaiterState;
     WaiterState["RETRY"] = "RETRY";
     WaiterState["TIMEOUT"] = "TIMEOUT";
 })(WaiterState || (WaiterState = {}));
+const checkExceptions = (result) => {
+    if (result.state === WaiterState.ABORTED) {
+        const abortError = new Error(`${JSON.stringify({
+            ...result,
+            reason: "Request was aborted",
+        })}`);
+        abortError.name = "AbortError";
+        throw abortError;
+    }
+    else if (result.state === WaiterState.TIMEOUT) {
+        const timeoutError = new Error(`${JSON.stringify({
+            ...result,
+            reason: "Waiter has timed out",
+        })}`);
+        timeoutError.name = "TimeoutError";
+        throw timeoutError;
+    }
+    else if (result.state !== WaiterState.SUCCESS) {
+        throw new Error(`${JSON.stringify(result)}`);
+    }
+    return result;
+};
 
 const exponentialBackoffWithJitter = (minDelay, maxDelay, attemptCeiling, attempt) => {
     if (attempt > attemptCeiling)
@@ -40201,6 +40445,79 @@ const createWaiter = async (options, input, acceptorChecks) => {
         exitConditions.push(abortTimeout(options.abortSignal));
     }
     return Promise.race(exitConditions);
+};
+
+const checkState = async (client, input) => {
+    let reason;
+    try {
+        const result = await client.send(new DescribeTableCommand(input));
+        reason = result;
+        try {
+            const returnComparator = () => {
+                return result.Table.TableStatus;
+            };
+            if (returnComparator() === "ACTIVE") {
+                return { state: WaiterState.SUCCESS, reason };
+            }
+        }
+        catch (e) { }
+    }
+    catch (exception) {
+        reason = exception;
+        if (exception.name && exception.name == "ResourceNotFoundException") {
+            return { state: WaiterState.RETRY, reason };
+        }
+    }
+    return { state: WaiterState.RETRY, reason };
+};
+const waitUntilTableExists = async (params, input) => {
+    const serviceDefaults = { minDelay: 20, maxDelay: 120 };
+    const result = await createWaiter({ ...serviceDefaults, ...params }, input, checkState);
+    return checkExceptions(result);
+};
+
+let ApplicationOperations$3 = class ApplicationOperations {
+    client;
+    tableName;
+    constructor(client) {
+        this.client = client;
+        this.tableName = this.client.getTableName();
+    }
+    async createTable() {
+        try {
+            await this.client
+                .getClient()
+                .send(new DescribeTableCommand({ TableName: this.tableName }));
+            coreExports.info(`The table ${this.tableName} already exists...`);
+            return;
+        }
+        catch (err) {
+            // Only create if table does not exist
+            if (err.name !== 'ResourceNotFoundException') {
+                throw err;
+            }
+            coreExports.info(`The table ${this.tableName} does not exist, creating table...`);
+            await this.client.getClient().send(new CreateTableCommand({
+                TableName: this.tableName,
+                AttributeDefinitions: [
+                    { AttributeName: 'PK', AttributeType: 'S' },
+                    { AttributeName: 'SK', AttributeType: 'S' }
+                ],
+                KeySchema: [
+                    { AttributeName: 'PK', KeyType: 'HASH' },
+                    { AttributeName: 'SK', KeyType: 'RANGE' }
+                ],
+                BillingMode: 'PAY_PER_REQUEST'
+            }));
+            await waitUntilTableExists({
+                client: this.client.getClient(),
+                maxWaitTime: 60 // timeout in seconds
+            }, {
+                TableName: this.tableName
+            });
+            coreExports.info(`Successfully created the table: ${this.tableName}...`);
+        }
+    }
 };
 
 function setFeature$2(context, feature, value) {
@@ -51395,6 +51712,9 @@ class DynamoDBService {
     constructor(client) {
         this.client = client;
     }
+    getApplicationOperations() {
+        return new ApplicationOperations$3(this.client);
+    }
     getSubnetOperations() {
         return new SubnetOperations(this.client);
     }
@@ -54071,7 +54391,7 @@ class ResourceClassConfigOperations extends ApplicationOperations$1 {
         const rccWithUrl = {};
         // for all resource classes, create a queue
         const rcPromises = rcs.map(async ([rcName, rcAttributes]) => {
-            const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}`;
+            const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}-ci-pool`;
             const url = await this.createQueue(awsQueueName, ResourceClassConfigOperations.createQueueOptions);
             rccWithUrl[rcName] = { ...rcAttributes, queueUrl: url || EMPTY_VALUE };
         });
@@ -55897,7 +56217,7 @@ class LaunchTemplateManager {
     ec2Ops;
     ddbOps;
     ltName;
-    constructor(tableName, githubContext, ec2Ops, ddbOps, ltName = 'runner-pool-base-lt') {
+    constructor(tableName, githubContext, ec2Ops, ddbOps, ltName = 'ci-launch-template') {
         this.tableName = tableName;
         this.githubContext = githubContext;
         this.ec2Ops = ec2Ops;
@@ -56152,6 +56472,10 @@ async function sendTerminationSignals(ids, ec2Ops) {
     }
 }
 
+async function manageTable(ddbOps) {
+    await ddbOps.createTable();
+}
+
 async function refresh(inputs) {
     const startTime = Date.now();
     coreExports.info(`Time: starting ${inputs.mode} mode:` +
@@ -56170,6 +56494,7 @@ async function refresh(inputs) {
         owner: githubRepoOwner,
         repo: githubRepoName
     });
+    await manageTable(ddbService.getApplicationOperations());
     await manageIdleTime(idleTimeSec, ddbService.getIdleTimeOperations());
     await manageSubnetIds(subnetIds, ddbService.getSubnetOperations());
     await manageMaxRuntimeMin(maxRuntimeMin, ddbService.getMaxRuntimeMinOperations());

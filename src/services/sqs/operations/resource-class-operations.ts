@@ -55,7 +55,7 @@ export class ResourceClassConfigOperations extends ApplicationOperations {
     // for all resource classes, create a queue
 
     const rcPromises = rcs.map(async ([rcName, rcAttributes]) => {
-      const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}`
+      const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}-ci-pool`
       const url = await this.createQueue(
         awsQueueName,
         ResourceClassConfigOperations.createQueueOptions

@@ -11,9 +11,11 @@ export function parseBaseInputs(): BaseInputs {
     ? process.env.RUN_ID || 'LOCAL_ID'
     : github.context.runId.toString()
 
+  const tableName = `${githubRepoOwner}-${githubRepoName}-ci-table`
+
   return {
     mode: getString('mode', true),
-    tableName: getString('table-name', true),
+    tableName: tableName,
     awsRegion: getString('aws-region', true),
     githubRunId: githubRunId,
     githubRepoName: githubRepoName,

@@ -11,10 +11,15 @@ import {
 import { BootstrapOperations } from './operations/bootstrap-operations.js'
 import { HeartbeatOperations } from './operations/heartbeat-operations.js'
 import { InstanceOperations } from './operations/instance-operations.js'
+import { ApplicationOperations } from './operations/application-operations.js'
 
 export class DynamoDBService {
   // 🔍 client made public for testing
   constructor(public client: DynamoDBClient) {}
+
+  getApplicationOperations() {
+    return new ApplicationOperations(this.client)
+  }
 
   getSubnetOperations() {
     return new SubnetOperations(this.client)

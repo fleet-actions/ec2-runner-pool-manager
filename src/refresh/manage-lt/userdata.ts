@@ -129,8 +129,13 @@ tar xzf ./actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
 
 export RUNNER_ALLOW_RUNASROOT=1
 # EC2 Instance ID Uniqueness - https://serverfault.com/questions/58401/is-the-amazon-ec2-instance-id-unique-forever
+START_TIME=$(date +%s)
 ./config.sh --url https://github.com/$GH_OWNER/$GH_REPO --name $INSTANCE_ID --token $GH_REGISTRATION_TOKEN --no-default-labels --labels $INSTANCE_ID
 CONFIG_EXIT_CODE=$?
+END_TIME=$(date +%s)
+DELTA=$((END_TIME - START_TIME))
+echo "config.sh execution time: $DELTA seconds"
+
 if [ $CONFIG_EXIT_CODE -ne 0 ]; then
   echo "Error: GitHub Actions Runner config.sh failed with exit code $CONFIG_EXIT_CODE." >&2
   exit $CONFIG_EXIT_CODE

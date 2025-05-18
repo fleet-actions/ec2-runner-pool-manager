@@ -80,12 +80,14 @@ export async function refresh(inputs: RefreshInputs): Promise<void> {
     ddbService.getLaunchTemplateOperations()
   )
 
-  await manageResourceClassConfiguration(
+  await manageResourceClassConfiguration({
     mode,
-    resourceClassConfig,
-    sqsService.getResourceClassConfigOperations(),
-    ddbService.getResourceClassConfigOperations()
-  )
+    rcc: resourceClassConfig,
+    githubRepoName,
+    githubRepoOwner,
+    sqsRCOps: sqsService.getResourceClassConfigOperations(),
+    ddbRCOps: ddbService.getResourceClassConfigOperations()
+  })
 
   await manageTerminations({
     ec2Ops: ec2Service.getInstanceOperations(),

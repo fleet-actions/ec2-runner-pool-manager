@@ -57,13 +57,21 @@ export async function manageMaxRuntimeMin(
   core.info('max runtime min successfully updated')
 }
 
+export interface ManageResourceClassConfigurationInputs {
+  githubRepoOwner: string
+  githubRepoName: string
+  mode: ValidMode
+  rcc: ResourceClassConfigInput
+  sqsRCOps: sqsRCOps
+  ddbRCOps: ddbRCOps
+}
+
 // Accepting rcc straight from input
 export async function manageResourceClassConfiguration(
-  mode: ValidMode,
-  rcc: ResourceClassConfigInput,
-  sqsRCOps: sqsRCOps,
-  ddbRCOps: ddbRCOps
+  inputs: ManageResourceClassConfigurationInputs
 ) {
+  const { mode, rcc, githubRepoName, githubRepoOwner, ddbRCOps, sqsRCOps } =
+    inputs
   const exstingRC = await ddbRCOps.getValue()
   if (exstingRC) {
     core.info(`existing rc found - config: ${JSON.stringify(exstingRC)}`)
@@ -73,7 +81,13 @@ export async function manageResourceClassConfiguration(
 
   // create queues based on incoming rcc anyway
   core.info(`creating resource pool queues (${Object.keys(rcc).join(', ')})...`)
-  const newRCC = await sqsRCOps.populateWithQueueUrls(mode, rcc)
+  const newRCC = await sqsRCOps.populateWithQueueUrls({
+    mode,
+    rccInput: rcc,
+    githubRepoName,
+    githubRepoOwner
+  })
+
   core.info(
     `created resource pool queues (${Object.keys(newRCC).join(', ')})...`
   )

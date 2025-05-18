@@ -54060,7 +54060,8 @@ class ResourceClassConfigOperations extends ApplicationOperations$1 {
     // This will initialize queue from inputs. Create -> Return queue urls.
     // Also store queue urls, cuz why not?
     // rccInput -> { rc1: {cpu, mmem}, rc2: {cpu, mmem}, ... }
-    async populateWithQueueUrls(mode, rccInput) {
+    async populateWithQueueUrls(inputs) {
+        const { mode, rccInput, githubRepoName, githubRepoOwner } = inputs;
         if (mode !== 'refresh') {
             throw new Error(`cannot use this method from any other mode other than 'refresh'. see input mode ${mode}`);
         }
@@ -54070,7 +54071,8 @@ class ResourceClassConfigOperations extends ApplicationOperations$1 {
         const rccWithUrl = {};
         // for all resource classes, create a queue
         const rcPromises = rcs.map(async ([rcName, rcAttributes]) => {
-            const url = await this.createQueue(rcName, ResourceClassConfigOperations.createQueueOptions);
+            const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}`;
+            const url = await this.createQueue(awsQueueName, ResourceClassConfigOperations.createQueueOptions);
             rccWithUrl[rcName] = { ...rcAttributes, queueUrl: url || EMPTY_VALUE };
         });
         // 🔍 usage of .all is a MUST. If we fail at creation of queue, we must know
@@ -55632,7 +55634,7 @@ var sha256 = /*@__PURE__*/getDefaultExportFromCjs(sha256Exports);
 // DDB cli examples: https://docs.aws.amazon.com/cli/v1/userguide/cli_dynamodb_code_examples.html
 // CLI examples: https://github.com/machulav/ec2-github-runner/blob/main/src/aws.js
 // USE:
-// $ tail -n 50 /var/log/user-data.log
+// $ tail -f /var/log/user-data.log
 // $ journalctl -t user-data
 function addBuiltInScript(tableName, context, input) {
     const { VALUE_COLUMN_NAME: BOOTSTRAP_COLUMN_NAME, ENTITY_TYPE: BOOTSTRAP_ENTITY, STATUS: BOOTSTRAP_STATUS } = BootstrapOperations;
@@ -56007,7 +56009,8 @@ async function manageMaxRuntimeMin(maxRuntimeMin, mrmOps) {
     coreExports.info('max runtime min successfully updated');
 }
 // Accepting rcc straight from input
-async function manageResourceClassConfiguration(mode, rcc, sqsRCOps, ddbRCOps) {
+async function manageResourceClassConfiguration(inputs) {
+    const { mode, rcc, githubRepoName, githubRepoOwner, ddbRCOps, sqsRCOps } = inputs;
     const exstingRC = await ddbRCOps.getValue();
     if (exstingRC) {
         coreExports.info(`existing rc found - config: ${JSON.stringify(exstingRC)}`);
@@ -56017,7 +56020,12 @@ async function manageResourceClassConfiguration(mode, rcc, sqsRCOps, ddbRCOps) {
     }
     // create queues based on incoming rcc anyway
     coreExports.info(`creating resource pool queues (${Object.keys(rcc).join(', ')})...`);
-    const newRCC = await sqsRCOps.populateWithQueueUrls(mode, rcc);
+    const newRCC = await sqsRCOps.populateWithQueueUrls({
+        mode,
+        rccInput: rcc,
+        githubRepoName,
+        githubRepoOwner
+    });
     coreExports.info(`created resource pool queues (${Object.keys(newRCC).join(', ')})...`);
     // store incoming rc anyway
     ddbRCOps.updateValue(newRCC);
@@ -56172,7 +56180,14 @@ async function refresh(inputs) {
         securityGroupIds,
         userData: preRunnerScript
     }, ec2Service.getLaunchTemplateOperations(), ddbService.getLaunchTemplateOperations());
-    await manageResourceClassConfiguration(mode, resourceClassConfig, sqsService.getResourceClassConfigOperations(), ddbService.getResourceClassConfigOperations());
+    await manageResourceClassConfiguration({
+        mode,
+        rcc: resourceClassConfig,
+        githubRepoName,
+        githubRepoOwner,
+        sqsRCOps: sqsService.getResourceClassConfigOperations(),
+        ddbRCOps: ddbService.getResourceClassConfigOperations()
+    });
     await manageTerminations({
         ec2Ops: ec2Service.getInstanceOperations(),
         ddbOps: {

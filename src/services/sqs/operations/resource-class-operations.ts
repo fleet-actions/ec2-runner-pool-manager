@@ -21,6 +21,13 @@ export interface SendResourcesToPoolsOutput {
   failed: Array<{ id: string; resourceClass: string; error: string }>
 }
 
+export interface PopulateWithQueueUrlsInputs {
+  mode: ValidMode
+  githubRepoOwner: string
+  githubRepoName: string
+  rccInput: ResourceClassConfigInput
+}
+
 export class ResourceClassConfigOperations extends ApplicationOperations {
   static createQueueOptions: CreateQueueOptions = {
     visibilityTimeout: 30 // default 30 seconds, adjust as needed
@@ -31,9 +38,9 @@ export class ResourceClassConfigOperations extends ApplicationOperations {
   // Also store queue urls, cuz why not?
   // rccInput -> { rc1: {cpu, mmem}, rc2: {cpu, mmem}, ... }
   async populateWithQueueUrls(
-    mode: ValidMode,
-    rccInput: ResourceClassConfigInput
+    inputs: PopulateWithQueueUrlsInputs
   ): Promise<ResourceClassConfig> {
+    const { mode, rccInput, githubRepoName, githubRepoOwner } = inputs
     if (mode !== 'refresh') {
       throw new Error(
         `cannot use this method from any other mode other than 'refresh'. see input mode ${mode}`
@@ -46,9 +53,11 @@ export class ResourceClassConfigOperations extends ApplicationOperations {
     // add this to context of wrapping fn
     const rccWithUrl = {} as ResourceClassConfig
     // for all resource classes, create a queue
+
     const rcPromises = rcs.map(async ([rcName, rcAttributes]) => {
+      const awsQueueName = `${githubRepoOwner}-${githubRepoName}-${rcName}`
       const url = await this.createQueue(
-        rcName,
+        awsQueueName,
         ResourceClassConfigOperations.createQueueOptions
       )
 

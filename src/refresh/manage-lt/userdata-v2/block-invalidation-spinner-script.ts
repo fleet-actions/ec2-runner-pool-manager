@@ -1,7 +1,10 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
 
-// Looks for runID for instance id. If one is found, then releases
-export function blockReleaseSpinnerScript() {
+// This script polls the Instance parition checking if the runId associated with
+// this instance differs from the provided input ID. The script blocks (continues looping)
+// as long as the runId matches the input ID, and releases (breaks the loop) when
+// they differ or when the runId is removed, indicating the runner has been released.
+export function blockInvalidationSpinnerScript() {
   const ent = InstanceOperations.ENTITY_TYPE
   return `#!/bin/bash
 
@@ -10,12 +13,12 @@ if [ $# -ne 2 ]; then
   exit 1
 fi
 
-INPUTID="$1"
-SLEEP="$2"
+_inputid="$1"
+_sleep="$2"
 
 while true; do
   _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  _tmpfile=$(mktemp /tmp/ddb-item-key-block-release.XXXXXX.json)
+  _tmpfile=$(mktemp /tmp/ddb-item-key-block-invalidation.XXXXXX.json)
   cat <<JSON > "$_tmpfile"
 {
   "PK": { "S": "TYPE#${ent}" },
@@ -23,20 +26,23 @@ while true; do
 }
 JSON
 
-  if ! RUNID=$(aws dynamoddb get-item --key { "PK": { "S": "TYPE#INSTANCE" } }... --consistent-read --output text --query 'Item.runId.S'); then
-    echo "[$DATE] Unable to fetch runId, retrying..."
-    sleep $SLEEP
+  if ! _runid=$(aws dynamodb get-item \
+        --key file://$_tmpfile \
+        --consistent-read \
+        --output text \
+        --query 'Item.runId.S'); then
+    echo "[$_localdate] unable to fetch runId, retrying..."
+    sleep $_sleep
     continue
-  fi  
+  fi
 
-  # NOTE: '-z "$RUNID"' is not incl. OK to have empty RUNID
-  if [ "$RUNID" != "$INPUTID" ]; then
-    echo "[$DATE] Found RUNID ($RUNID) is not equal to input id ($INPUTID). Runner has been released. Completing is_released_spinner..."
-    echo "$RUNID" > $FILE
+  # NOTE: OK to have empty _runid - so not checking for -z
+  if [ "$_runid" != "$_inputid" ]; then
+    echo "[$_localdate] found _runid ($_runid) is != input id ($_inputid). runner released. completing..."
     break
   else
-    echo "[$DATE] Invalid RUNID ($RUNID) found. Retrying..."
-    sleep $SLEEP
+    echo "[$_localdate] found _runid ($_runid) is == input id ($_inputid). runner still not released. Retrying..."
+    sleep $_sleep
     continue
   fi    
 done

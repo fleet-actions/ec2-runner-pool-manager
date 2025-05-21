@@ -3,6 +3,7 @@ import { WorkerSignalOperations } from '../../../services/dynamodb/operations/si
 // $TABLE_NAME, #INSTANCE_ID
 export function emitSignalScript(): string {
   const ent = WorkerSignalOperations.ENTITY_TYPE
+  const col = WorkerSignalOperations.VALUE_COLUMN_NAME
   return `#!/bin/bash
 
 if [ $# -ne 3 ]; then
@@ -10,25 +11,25 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
-localid="$1"
-localsignal="$2"
-localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+_localid="$1"
+_localsignal="$2"
+_localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-tmpfile=$(mktemp /tmp/emit-signal.XXXXXX.json)
-cat <<JSON > "$tmpfile"
+_tmpfile=$(mktemp /tmp/emit-signal.XXXXXX.json)
+cat <<JSON > "$_tmpfile"
 {
   "PK": { "S": "TYPE#${ent}" },
   "SK": { "S": "ID#$INSTANCE_ID" },
   "entityType": { "S": "${ent}" },
   "identifier": { "S": "$INSTANCE_ID" },
-  "$WS_COLUMN_NAME": { "M": { "state": { "S": "$localsignal" }, "runId": { "S": "$localid" } },
-  "updatedAt": { "S": "$localdate" }
+  "${col}": { "M": { "state": { "S": "$_localsignal" }, "runId": { "S": "$_localid" } },
+  "updatedAt": { "S": "$_localdate" }
 }
 JSON
 aws dynamodb put-item \
   --table-name "$TABLE_NAME" \
-  --item file://"$tmpfile"
-rm -f "$tmpfile"
-echo "[$localdate] $localsignal for $localid communicated to DDB..."
+  --item file://"$_tmpfile"
+rm -f "$_tmpfile"
+echo "[$_localdate] $_localsignal for $_localid communicated to DDB..."
 `
 }

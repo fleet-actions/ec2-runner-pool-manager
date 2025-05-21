@@ -8,12 +8,12 @@ export function fetchGHTokenScript() {
 
   return `#!/bin/bash
 
-localtoken=$(aws dynamodb get-item \
+_localtoken=$(aws dynamodb get-item \
   --table-name $TABLE_NAME \
   --key '{ "PK": { "S" : "TYPE#${ent}" } }, "SK" : { "S" : "ID#${id}" } }' \
   --query "Item.${col}.M.token.S" \
   --output text)
 
-echo "$localtoken"
+echo "$_localtoken"
 `
 }

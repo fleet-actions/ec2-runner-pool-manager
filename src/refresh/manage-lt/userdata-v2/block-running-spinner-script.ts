@@ -1,7 +1,10 @@
 import { LeaderSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
 
-// looks for valid runId in #LS. If found, release
-export function blockRunningSpinnerScript() {
+// This script polls the LeaderSignal partition checking if the instance's ID exists
+// and if the value matches the provided input ID. The script blocks (continues looping)
+// until both conditions are true, at which point it releases (breaks the loop).
+// Used to confirm a runner has been accepted with the correct runId.
+export function blockRunSpinnerScript() {
   const ent = LeaderSignalOperations.ENTITY_TYPE
   const col = LeaderSignalOperations.VALUE_COLUMN_NAME
 
@@ -17,7 +20,7 @@ _sleep="$2"
 
 while true; do
   _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  _tmpfile=$(mktemp /tmp/ddb-item-key-block-running.XXXXXX.json)
+  _tmpfile=$(mktemp /tmp/ddb-item-key-block-run.XXXXXX.json)
   cat <<JSON > "$_tmpfile"
 {
   "PK": { "S": "TYPE#${ent}" },
@@ -30,17 +33,16 @@ JSON
         --consistent-read \
         --output text \
         --query 'Item.${col}.S'); then
-    echo "[$_localdate] Unable to fetch runId from accepted partition, retrying..."
+    echo "[$_localdate] unable to fetch runId, retrying..."
     sleep $_sleep
     continue    
   fi
 
-  # None is defined as output of '--output text'
   if [ -n "$_acceptedid" ] && [ "$_inputid" == "$_acceptedid" ]; then
-    echo "[$_localdate] Accepted ID ($_acceptedid) matches input id ($_inputid). Runner confirmed accepted..."
+    echo "[$_localdate] accepted ID ($_acceptedid) == input id ($_inputid). runner confirmed accepted. completing..."
     break
   else
-    echo "[$_localdate] Accepted ID ($_acceptedid) does not match input id ($_inputid). Retrying..."
+    echo "[$_localdate] accepted ID ($_acceptedid) != input id ($_inputid). runner not yet accepted. retrying..."
     sleep $_sleep
     continue
   fi

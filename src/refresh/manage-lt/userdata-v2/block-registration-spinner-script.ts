@@ -1,6 +1,10 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
 
-// Looks for runID for instance id. If one is found, then releases
+// This script polls the Instance parition waiting for a valid runId to be assigned to
+// this instance. The script blocks (continues looping) until a non-empty, non-"None"
+// runId is found. Once a valid runId is detected, it writes this ID to the provided
+// output file and releases (breaks the loop), indicating the runner has been
+// successfully registered and claimed.
 export function blockRegistrationSpinnerScript() {
   const ent = InstanceOperations.ENTITY_TYPE
   return `#!/bin/bash
@@ -24,22 +28,22 @@ while true; do
 JSON
 
   if ! _runid=$(aws dynamodb get-item \
-    --key file://$_tmpfile \
-    --consistent-read \
-    --output text \
-    --query 'Item.runId.S'); then
-    echo "[$_localdate] Unable to fetch runId, retrying..."
+        --key file://$_tmpfile \
+        --consistent-read \
+        --output text \
+        --query 'Item.runId.S'); then
+    echo "[$_localdate] unable to fetch runId, retrying..."
     sleep $_sleep
     continue
   fi
 
-  # None is defined as output of "--output text"
+  # Do not accept None as runId (empty output of "--output text")
   if [ -n "$_runid" ] && [ "$_runid" != "None" ]; then
-    echo "[$_localdate] Found _runid ($_runid). Successfully fetched run id..."
+    echo "[$_localdate] found _runid ($_runid) - writing to $_file. runner is registered/claimed. completing..."
     echo "$_runid" > $_file
     break
   else
-    echo "[$_localdate] Invalid _runid ($_runid) found. Retrying..."
+    echo "[$_localdate] invalid _runid ($_runid) found. runner is not registered/claimed. retrying..."
     sleep $_sleep
     continue
   fi  

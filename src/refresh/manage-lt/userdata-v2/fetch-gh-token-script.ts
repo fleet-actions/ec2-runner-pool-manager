@@ -1,12 +1,13 @@
 import { RegistrationTokenOperations } from '../../../services/dynamodb/operations/metadata-operations.js'
+import { heredocAndchmod } from './helper.js'
 
 // $TABLE_NAME
-export function fetchGHTokenScript() {
+export function fetchGHTokenScript(filename: string) {
   const ent = RegistrationTokenOperations.ENTITY_TYPE
   const id = 'gh_registration_token' // NOTE: fix magic string
   const col = RegistrationTokenOperations.VALUE_COLUMN_NAME
 
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 _localtoken=$(aws dynamodb get-item \
   --table-name $TABLE_NAME \
@@ -16,4 +17,6 @@ _localtoken=$(aws dynamodb get-item \
 
 echo "$_localtoken"
 `
+
+  return heredocAndchmod({ filename, script })
 }

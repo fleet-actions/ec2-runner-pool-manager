@@ -1,12 +1,13 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
+import { heredocAndchmod } from './helper.js'
 
 // This script polls the Instance parition checking if the runId associated with
 // this instance differs from the provided input ID. The script blocks (continues looping)
 // as long as the runId matches the input ID, and releases (breaks the loop) when
 // they differ or when the runId is removed, indicating the runner has been released.
-export function blockInvalidationSpinnerScript() {
+export function blockInvalidationSpinnerScript(filename: string) {
   const ent = InstanceOperations.ENTITY_TYPE
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <id> <spin-period>" >&2
@@ -47,4 +48,6 @@ JSON
   fi    
 done
 `
+
+  return heredocAndchmod({ filename, script })
 }

@@ -1,10 +1,11 @@
 import { WorkerSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
+import { heredocAndchmod } from './helper.js'
 
 // $TABLE_NAME, #INSTANCE_ID
-export function emitSignalScript(): string {
+export function emitSignalScript(filename: string): string {
   const ent = WorkerSignalOperations.ENTITY_TYPE
   const col = WorkerSignalOperations.VALUE_COLUMN_NAME
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 if [ $# -ne 3 ]; then
   echo "Usage: $0 <id> <signal>" >&2
@@ -32,4 +33,6 @@ aws dynamodb put-item \
 rm -f "$_tmpfile"
 echo "[$_localdate] $_localsignal for $_localid communicated to DDB..."
 `
+
+  return heredocAndchmod({ filename, script })
 }

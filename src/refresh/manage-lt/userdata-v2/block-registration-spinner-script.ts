@@ -1,13 +1,14 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
+import { heredocAndchmod } from './helper.js'
 
 // This script polls the Instance parition waiting for a valid runId to be assigned to
 // this instance. The script blocks (continues looping) until a non-empty, non-"None"
 // runId is found. Once a valid runId is detected, it writes this ID to the provided
 // output file and releases (breaks the loop), indicating the runner has been
 // successfully registered and claimed.
-export function blockRegistrationSpinnerScript() {
+export function blockRegistrationSpinnerScript(filename: string) {
   const ent = InstanceOperations.ENTITY_TYPE
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <output-file> <spin-period>" >&2
@@ -49,4 +50,6 @@ JSON
   fi  
 done
 `
+
+  return heredocAndchmod({ filename, script })
 }

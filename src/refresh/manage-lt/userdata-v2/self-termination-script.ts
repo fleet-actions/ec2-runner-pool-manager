@@ -1,9 +1,10 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
+import { heredocAndchmod } from './helper.js'
 
-export function selfTerminationScript(period = 15) {
+export function selfTerminationScript(filename: string, period = 15) {
   const ent = InstanceOperations.ENTITY_TYPE
   const col = 'threshold' // NOTE: magic string
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 _period=${period}
 
 while true; do
@@ -65,4 +66,6 @@ JSON
   sleep $_period
 done
 `
+
+  return heredocAndchmod({ filename, script })
 }

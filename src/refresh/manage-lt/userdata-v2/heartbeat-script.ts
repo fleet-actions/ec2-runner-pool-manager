@@ -1,12 +1,13 @@
 import { HeartbeatOperations } from '../../../services/dynamodb/operations/heartbeat-operations.js'
+import { heredocAndchmod } from './helper.js'
 
-export function heartbeatScript() {
+export function heartbeatScript(filename: string) {
   const ent = HeartbeatOperations.ENTITY_TYPE
   const col = HeartbeatOperations.VALUE_COLUMN_NAME
   const state = HeartbeatOperations.STATUS.PING
   const period = HeartbeatOperations.PERIOD_SECONDS
 
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 while true; do
   _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -34,4 +35,6 @@ JSON
   sleep ${period}
 done
 `
+
+  return heredocAndchmod({ filename, script })
 }

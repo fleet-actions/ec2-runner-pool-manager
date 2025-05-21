@@ -1,14 +1,15 @@
 import { LeaderSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
+import { heredocAndchmod } from './helper.js'
 
 // This script polls the LeaderSignal partition checking if the instance's ID exists
 // and if the value matches the provided input ID. The script blocks (continues looping)
 // until both conditions are true, at which point it releases (breaks the loop).
 // Used to confirm a runner has been accepted with the correct runId.
-export function blockRunSpinnerScript() {
+export function blockRunSpinnerScript(filename: string) {
   const ent = LeaderSignalOperations.ENTITY_TYPE
   const col = LeaderSignalOperations.VALUE_COLUMN_NAME
 
-  return `#!/bin/bash
+  const script = `#!/bin/bash
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <id> <spin-period>" >&2
@@ -48,4 +49,6 @@ JSON
   fi
 done
 `
+
+  return heredocAndchmod({ filename, script })
 }

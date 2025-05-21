@@ -9,6 +9,9 @@ import { heartbeatScript } from './heartbeat-script.js'
 import { selfTerminationScript } from './self-termination-script.js'
 import { userScript } from './user-script.js'
 import { downloadRunnerArtifactScript } from './download-runner-artifact-script.js'
+import { blockRegistrationSpinnerScript } from './block-registration-spinner-script.js'
+import { blockRunSpinnerScript } from './block-running-spinner-script.js'
+import { blockInvalidationSpinnerScript } from './block-invalidation-spinner-script.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -44,40 +47,20 @@ export TABLE_NAME="${tableName}"
 export GH_OWNER="${context.owner}"
 export GH_REPO="${context.repo}"
 
-### REMAINING INITIALIZATION
+### REMAINING INITIALIZATION 
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 export INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 
-echo "Building reusable scripts"
-cat <<'EOF'> emit-signal.sh
-${emitSignalScript()}
-EOF
-chmod +x emit-signal.sh 
-
-cat <<'EOF'> fetch-gh-token.sh
-${fetchGHTokenScript()}
-EOF
-chmod +x fetch-gh-token.sh
-
-cat <<'EOF'> heartbeat.sh
-${heartbeatScript()}
-EOF
-chmod +x heartbeat.sh
-
-cat <<'EOF'> self-termination.sh
-${selfTerminationScript()}
-EOF
-chmod +x self-termination.sh
-
-cat <<'EOF'> user-script.sh
-${userScript(input.userData)}
-EOF
-chmod +x user-script.sh
-
-cat <<'EOF'> download-runner-artifact.sh
-${downloadRunnerArtifactScript(RUNNER_VERSION)}
-EOF
-chmod +x download-runner-artifact.sh 
+echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
+${emitSignalScript('emit-signal.sh')}
+${fetchGHTokenScript('fetch-gh-token.sh')}
+${heartbeatScript('heartbeat.sh')}
+${selfTerminationScript('self-termination.sh')}
+${userScript('user-script.sh', input.userData)}
+${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
+${blockRegistrationSpinnerScript('block-registration-spinner.sh')}
+${blockRunSpinnerScript('block-run-spinner.sh')}
+${blockInvalidationSpinnerScript('block-invalidation-spinner.sh')}
 
 ### USERDATA ###
 ### ... ###

@@ -63,6 +63,7 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     // - ANY UD Failures
     // - If still OK; any matching id failures
 
+    // Special Failure case:
     // Given ANY instance, if UD Failed is found - mark for failure
     const f = WorkerSignalOperations.FAILED_STATUS.UD
     const anyUDFailed = [...report.matchingIds[f], ...report.nonMatchingIds[f]]
@@ -70,6 +71,7 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
       return 'failed'
     }
 
+    // Rest of the failure cases:
     // Given runId, if any failed staus is found - mark for failure
     const hasAnyFailures = Object.values(
       WorkerSignalOperations.FAILED_STATUS

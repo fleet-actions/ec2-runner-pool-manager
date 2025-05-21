@@ -3,15 +3,19 @@ import * as core from '@actions/core'
 import sha256 from 'crypto-js/sha256.js'
 import { LTDatav2 } from '../../../services/types.js'
 import { GitHubContext } from '../../../services/types.js'
+import { WorkerSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
 import { emitSignalScript } from './emit-signal-script.js'
-import { fetchGHTokenScript } from './fetch-gh-token-script.js'
-import { heartbeatScript } from './heartbeat-script.js'
-import { selfTerminationScript } from './self-termination-script.js'
-import { userScript } from './user-script.js'
-import { downloadRunnerArtifactScript } from './download-runner-artifact-script.js'
-import { blockRegistrationSpinnerScript } from './block-registration-spinner-script.js'
-import { blockRunSpinnerScript } from './block-running-spinner-script.js'
-import { blockInvalidationSpinnerScript } from './block-invalidation-spinner-script.js'
+import {
+  fetchGHTokenScript,
+  userScript,
+  downloadRunnerArtifactScript
+} from './minor-scripts.js'
+import {
+  blockRegistrationSpinnerScript,
+  blockRunSpinnerScript,
+  blockInvalidationSpinnerScript
+} from './spinner-scripts.js'
+import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -32,6 +36,8 @@ export function addBuiltInScript(
   input: LTDatav2
 ): LTDatav2 {
   const RUNNER_VERSION = '2.323.0'
+  const longS = 1
+  const shortS = 0.1
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
@@ -63,32 +69,78 @@ ${blockRunSpinnerScript('block-run-spinner.sh')}
 ${blockInvalidationSpinnerScript('block-invalidation-spinner.sh')}
 
 ### USERDATA ###
-### ... ###
-
-### REGISTRATION ROUTINE
-### ... ###
-
-
-
-
-
-export RUNNER_ALLOW_RUNASROOT=1
-# EC2 Instance ID Uniqueness - https://serverfault.com/questions/58401/is-the-amazon-ec2-instance-id-unique-forever
-START_TIME=$(date +%s)
-./config.sh --url https://github.com/$GH_OWNER/$GH_REPO --name $INSTANCE_ID --token $GH_REGISTRATION_TOKEN --no-default-labels --labels $INSTANCE_ID
-CONFIG_EXIT_CODE=$?
-END_TIME=$(date +%s)
-DELTA=$((END_TIME - START_TIME))
-echo "config.sh execution time: $DELTA seconds"
-
-if [ $CONFIG_EXIT_CODE -ne 0 ]; then
-  echo "Error: GitHub Actions Runner config.sh failed with exit code $CONFIG_EXIT_CODE." >&2
-  exit $CONFIG_EXIT_CODE
+if ! ./user-script.sh; then
+  >&2 echo "user-defined userdata unable to execute correctly. emitting signal..."
+  ./emit-signal.sh "" "${WorkerSignalOperations.FAILED_STATUS.UD}"
 fi
 
-### STARTING RUNNER
-# echo "Running run.sh"
-./run.sh
+echo "user-defined userdata OK. emitting signal..."
+./emit-signal.sh "" "${WorkerSignalOperations.OK_STATUS.UD}"
+
+### SETUP BACKGROUND SCRIPTS ###
+./heartbeat.sh &
+./self-termination.sh &
+
+
+### REGISTRATION LOOP ###
+while true; do
+  echo "Starting registration loop..."
+
+  # PART 1: Confirmation of new pool (! -z RECORDED)
+  _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
+  ./block-registration-spinner.sh "$_tmpfile" "${longS}"
+  _loop_id=$(cat $_tmpfile)
+  rm -f $_tmpfile  
+
+  # PART 2: Register to worker GH with valid token & emit
+  _gh_reg_token=$(./fetch-gh-token.sh)
+    
+  START_TIME=$(date +%s)
+  
+  if ! ./config.sh \
+    --url https://github.com/$GH_OWNER/$GH_REPO \
+    --name $INSTANCE_ID \
+    --replace true \
+    --token $_gh_reg_token \
+    --no-default-labels \
+    --labels $_loop_id; then
+    
+    ./emit-signal.sh "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
+    >&2 echo "Unable to register worker to gh"
+    exit 1
+  fi
+  
+  END_TIME=$(date +%s)
+
+  ./emit-signal.sh "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
+  echo "Successfully registered worker to gh"
+
+  # PART 3 ACK from leader of OK reg signal
+  ./block-run-spinner.sh "$_loop_id" "${shortS}"
+
+  # PART 4: Allow runner to listen (manual mode for deterministic/better control)
+  # https://github.com/actions/runner/blob/main/src/Misc/layoutroot/run.sh
+  RUNNER_MANUALLY_TRAP_SIG=1 ./run.sh > runner.log 2>&1 & 
+  _runner_pid=$!
+
+  # PART 5: IF NEEDED - monitor status of run.sh. 
+  # ... For now, be optimistic of run.sh runtime
+
+  # PART 6: Wait for leader worker no longer needs to listen
+  ./block-invalidation-spinner.sh "$_loop_id" "${longS}"
+
+  # PART 7: Send kill signal to listener pid and deregister
+  echo "Initiating invalidation..."
+  if kill -TERM $_runner_pid; then
+    wait $_runner_pid  
+  fi 
+
+  # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
+  _gh_reg_token=$(./fetch-gh-token.sh)
+  ./config.sh remove --token $_gh_reg_token
+
+  echo "Worker now should not be able to pickup jobs..."
+done
 `
 
   return { ...input, userData: WRAPPER_SCRIPT }

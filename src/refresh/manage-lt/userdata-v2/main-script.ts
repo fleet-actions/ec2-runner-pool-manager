@@ -4,18 +4,15 @@ import sha256 from 'crypto-js/sha256.js'
 import { LTDatav2 } from '../../../services/types.js'
 import { GitHubContext } from '../../../services/types.js'
 import { WorkerSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
-import { emitSignalScript } from './emit-signal-script.js'
+import { emitSignal } from './emit-signal.js'
+import { fetchGHToken } from './fetch-token.js'
+import { userScript, downloadRunnerArtifactScript } from './minor-scripts.js'
 import {
-  fetchGHTokenScript,
-  userScript,
-  downloadRunnerArtifactScript
-} from './minor-scripts.js'
-import {
-  blockRegistrationSpinnerScript,
-  blockRunSpinnerScript,
-  blockInvalidationSpinnerScript
-} from './spinner-scripts.js'
-import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
+  blockRegistrationSpinner,
+  blockRunSpinner,
+  blockInvalidationSpinner
+} from './spinners.js'
+import { heartbeat, selfTermination } from './background.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -58,29 +55,32 @@ TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-meta
 export INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 
 echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
-${emitSignalScript('emit-signal.sh')}
-${fetchGHTokenScript('fetch-gh-token.sh')}
-${heartbeatScript('heartbeat.sh')}
-${selfTerminationScript('self-termination.sh')}
+${emitSignal()}
+${fetchGHToken()}
+${heartbeat()}
+${selfTermination()}
+${blockRegistrationSpinner()}
+${blockRunSpinner()}
+${blockInvalidationSpinner()}
+
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
-${blockRegistrationSpinnerScript('block-registration-spinner.sh')}
-${blockRunSpinnerScript('block-run-spinner.sh')}
-${blockInvalidationSpinnerScript('block-invalidation-spinner.sh')}
 
 ### USERDATA ###
 if ! ./user-script.sh; then
   >&2 echo "user-defined userdata unable to execute correctly. emitting signal..."
-  ./emit-signal.sh "" "${WorkerSignalOperations.FAILED_STATUS.UD}"
+  emitSignal "" "${WorkerSignalOperations.FAILED_STATUS.UD}"
 fi
 
 echo "user-defined userdata OK. emitting signal..."
-./emit-signal.sh "" "${WorkerSignalOperations.OK_STATUS.UD}"
+emitSignal "" "${WorkerSignalOperations.OK_STATUS.UD}"
+
+### FETCH ARTIFACTS ###
+./download-runner-artifact.sh
 
 ### SETUP BACKGROUND SCRIPTS ###
-./heartbeat.sh &
-./self-termination.sh &
-
+heartbeat &
+selfTermination &
 
 ### REGISTRATION LOOP ###
 while true; do
@@ -88,12 +88,12 @@ while true; do
 
   # PART 1: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  ./block-registration-spinner.sh "$_tmpfile" "${longS}"
+  blockRegistrationSpinner "$_tmpfile" "${longS}"
   _loop_id=$(cat $_tmpfile)
   rm -f $_tmpfile  
 
   # PART 2: Register to worker GH with valid token & emit
-  _gh_reg_token=$(./fetch-gh-token.sh)
+  _gh_reg_token=$(fetchGHToken)
     
   START_TIME=$(date +%s)
   
@@ -105,18 +105,18 @@ while true; do
     --no-default-labels \\
     --labels $_loop_id; then
     
-    ./emit-signal.sh "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
     >&2 echo "Unable to register worker to gh"
     exit 1
   fi
   
   END_TIME=$(date +%s)
 
-  ./emit-signal.sh "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
   # PART 3 ACK from leader of OK reg signal
-  ./block-run-spinner.sh "$_loop_id" "${shortS}"
+  blockRunSpinner "$_loop_id" "${shortS}"
 
   # PART 4: Allow runner to listen (manual mode for deterministic/better control)
   # https://github.com/actions/runner/blob/main/src/Misc/layoutroot/run.sh
@@ -127,7 +127,7 @@ while true; do
   # ... For now, be optimistic of run.sh runtime
 
   # PART 6: Wait for leader worker no longer needs to listen
-  ./block-invalidation-spinner.sh "$_loop_id" "${longS}"
+  blockInvalidationSpinner "$_loop_id" "${longS}"
 
   # PART 7: Send kill signal to listener pid and deregister
   echo "Initiating invalidation..."
@@ -136,7 +136,7 @@ while true; do
   fi 
 
   # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
-  _gh_reg_token=$(./fetch-gh-token.sh)
+  _gh_reg_token=$(fetchGHToken)
   ./config.sh remove --token $_gh_reg_token
 
   echo "Worker now should not be able to pickup jobs..."

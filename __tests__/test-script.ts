@@ -16,6 +16,11 @@ const ltData: LTDatav2 = {
 // Generate the script
 const result = addBuiltInScript('test-table', context, ltData)
 
+// Delete the file if it exists
+if (fs.existsSync('.output-script.sh')) {
+  fs.unlinkSync('.output-script.sh')
+}
+
 // Write to file
 fs.writeFileSync('.output-script.sh', result.userData as string)
 console.log('Script written to .output-script.sh')

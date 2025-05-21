@@ -11,9 +11,10 @@ export function emitSignal(): string {
 ${functionName}() {
   local _localid="$1"
   local _localsignal="$2"
-  local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local _localdate
   local _tmpfile
 
+  _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   _tmpfile=$(mktemp /tmp/emit-signal.XXXXXX.json)
   cat <<JSON > "$_tmpfile"
 {

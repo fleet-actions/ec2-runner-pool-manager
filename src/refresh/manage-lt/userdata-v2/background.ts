@@ -12,7 +12,8 @@ ${functionName}() {
   local _period=${period}
 
   while true; do
-    local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # 1) Try fetching threshold, retry on API error
     local _threshold
@@ -79,8 +80,10 @@ export function heartbeat() {
 # Function to emit periodic heartbeat signals
 ${functionName}() {
   while true; do
-    local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local _tmpfile=$(mktemp /tmp/ddb-item-heartbeat.XXXXXX.json)
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _tmpfile
+    _tmpfile=$(mktemp /tmp/ddb-item-heartbeat.XXXXXX.json) 
 
     cat <<JSON > "$_tmpfile"
 {

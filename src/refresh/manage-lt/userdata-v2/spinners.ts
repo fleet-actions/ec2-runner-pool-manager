@@ -22,7 +22,8 @@ ${functionName}() {
   local _sleep="$2"
 
   while true; do
-    local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local _runid
 
     if ! _runid=$(aws dynamodb get-item \\
@@ -32,18 +33,18 @@ ${functionName}() {
           --output text \\
           --query 'Item.runId.S'); then
       echo "[$_localdate] unable to fetch runId, retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue
     fi
 
     # Do not accept None as runId (empty output of "--output text")
     if [ -n "$_runid" ] && [ "$_runid" != "None" ]; then
       echo "[$_localdate] found _runid ($_runid) - writing to $_file. runner is registered/claimed. completing..."
-      echo "$_runid" > $_file
+      echo "$_runid" > "$_file"
       break
     else
       echo "[$_localdate] invalid _runid ($_runid) found. runner is not registered/claimed. retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue
     fi  
   done
@@ -74,7 +75,8 @@ ${functionName}() {
   local _sleep="$2"
 
   while true; do
-    local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local _acceptedid
 
     if ! _acceptedid=$(aws dynamodb get-item \\
@@ -84,7 +86,7 @@ ${functionName}() {
           --output text \\
           --query 'Item.${col}.S'); then
       echo "[$_localdate] unable to fetch runId, retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue    
     fi
 
@@ -93,7 +95,7 @@ ${functionName}() {
       break
     else
       echo "[$_localdate] accepted ID ($_acceptedid) != input id ($_inputid). runner not yet accepted. retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue
     fi
   done
@@ -123,7 +125,8 @@ ${functionName}() {
   local _sleep="$2"
 
   while true; do
-    local _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local _runid
 
     if ! _runid=$(aws dynamodb get-item \\
@@ -133,7 +136,7 @@ ${functionName}() {
           --output text \\
           --query 'Item.runId.S'); then
       echo "[$_localdate] unable to fetch runId, retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue
     fi
 
@@ -143,7 +146,7 @@ ${functionName}() {
       break
     else
       echo "[$_localdate] found _runid ($_runid) is == input id ($_inputid). runner still not released. Retrying..."
-      sleep $_sleep
+      sleep "$_sleep"
       continue
     fi    
   done

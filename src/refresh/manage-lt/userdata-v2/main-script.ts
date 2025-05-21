@@ -43,7 +43,7 @@ export function addBuiltInScript(
 # .redirect all logs to user-data.log
 # .create actions directory
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-mkdir -p actions-runner && cd actions-runner
+mkdir -p actions-runner && cd actions-runner || exit
 
 ### INPUTS FROM JS
 export TABLE_NAME="${tableName}"
@@ -52,7 +52,8 @@ export GH_REPO="${context.repo}"
 
 ### REMAINING INITIALIZATION 
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-export INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+export INSTANCE_ID
 
 echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
 ${emitSignal()}
@@ -89,8 +90,8 @@ while true; do
   # PART 1: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
   blockRegistrationSpinner "$_tmpfile" "${longS}"
-  _loop_id=$(cat $_tmpfile)
-  rm -f $_tmpfile  
+  _loop_id=$(cat "$_tmpfile")
+  rm -f "$_tmpfile"
 
   # PART 2: Register to worker GH with valid token & emit
   _gh_reg_token=$(fetchGHToken)
@@ -99,11 +100,11 @@ while true; do
   
   if ! ./config.sh \\
     --url https://github.com/$GH_OWNER/$GH_REPO \\
-    --name $INSTANCE_ID \\
+    --name "$INSTANCE_ID" \\
     --replace true \\
-    --token $_gh_reg_token \\
+    --token "$_gh_reg_token" \\
     --no-default-labels \\
-    --labels $_loop_id; then
+    --labels "$_loop_id"; then
     
     emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
     >&2 echo "Unable to register worker to gh"
@@ -111,6 +112,8 @@ while true; do
   fi
   
   END_TIME=$(date +%s)
+  DELTA=$((END_TIME - START_TIME))
+  echo "config.sh execution time: $DELTA seconds"  
 
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
@@ -137,7 +140,7 @@ while true; do
 
   # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
   _gh_reg_token=$(fetchGHToken)
-  ./config.sh remove --token $_gh_reg_token
+  ./config.sh remove --token "$_gh_reg_token"
 
   echo "Worker now should not be able to pickup jobs..."
 done

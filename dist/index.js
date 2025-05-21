@@ -41386,7 +41386,7 @@ class HeartbeatOperations extends BasicValueOperations {
     static STATUS = {
         PING: 'PING'
     };
-    static ENTITY_TYPE = 'HEARTHBEAT';
+    static ENTITY_TYPE = 'HEARTBEAT';
     static PERIOD_SECONDS = 5;
     static HEALTHY = 'healthy';
     static UNHEALTHY = 'unhealthy';

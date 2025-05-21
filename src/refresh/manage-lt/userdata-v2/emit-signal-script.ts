@@ -7,7 +7,7 @@ export function emitSignalScript(filename: string): string {
   const col = WorkerSignalOperations.VALUE_COLUMN_NAME
   const script = `#!/bin/bash
 
-if [ $# -ne 3 ]; then
+if [ $# -ne 2 ]; then
   echo "Usage: $0 <id> <signal>" >&2
   exit 1
 fi
@@ -23,12 +23,12 @@ cat <<JSON > "$_tmpfile"
   "SK": { "S": "ID#$INSTANCE_ID" },
   "entityType": { "S": "${ent}" },
   "identifier": { "S": "$INSTANCE_ID" },
-  "${col}": { "M": { "state": { "S": "$_localsignal" }, "runId": { "S": "$_localid" } },
+  "${col}": { "M": { "state": { "S": "$_localsignal" }, "runId": { "S": "$_localid" } } },
   "updatedAt": { "S": "$_localdate" }
 }
 JSON
-aws dynamodb put-item \
-  --table-name "$TABLE_NAME" \
+aws dynamodb put-item \\
+  --table-name "$TABLE_NAME" \\
   --item file://"$_tmpfile"
 rm -f "$_tmpfile"
 echo "[$_localdate] $_localsignal for $_localid communicated to DDB..."

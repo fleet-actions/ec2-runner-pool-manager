@@ -20,11 +20,11 @@ JSON
 
   # 1) Try fetching threshold, retry on API error
   if ! _threshold=$(
-      aws dynamodb get-item \
-        --table-name "$TABLE_NAME" \
-        --key file://"$_tmpfile" \
-        --query 'Item.${col}.S' \
-        --consistent-read \
+      aws dynamodb get-item \\
+        --table-name "$TABLE_NAME" \\
+        --key file://"$_tmpfile" \\
+        --query 'Item.${col}.S' \\
+        --consistent-read \\
         --output text
     ); then
     echo "[$_localdate] DynamoDB get-item failed; retrying in $_period s…" >&2
@@ -93,8 +93,8 @@ while true; do
   "updatedAt": { "S": "$_localdate" }
 }
 JSON
-  if ! aws dynamodb put-item \
-    --table-name "$TABLE_NAME" \
+  if ! aws dynamodb put-item \\
+    --table-name "$TABLE_NAME" \\
     --item file://"$_tmpfile"; then
     rm -f "$_tmpfile"
     echo "[$_localdate] heartbeat failed, retrying in [${period}]s..." >&2

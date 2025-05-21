@@ -29,10 +29,11 @@ while true; do
 }
 JSON
 
-  if ! _runid=$(aws dynamodb get-item \
-        --key file://$_tmpfile \
-        --consistent-read \
-        --output text \
+  if ! _runid=$(aws dynamodb get-item \\
+        --table-name "$TABLE_NAME" \\
+        --key file://"$_tmpfile" \\
+        --consistent-read \\
+        --output text \\
         --query 'Item.runId.S'); then
     echo "[$_localdate] unable to fetch runId, retrying..."
     sleep $_sleep
@@ -83,10 +84,11 @@ while true; do
 }
 JSON  
 
-  if ! _acceptedid=$(aws dynamodb get-item \
-        --key file://$_tmpfile \
-        --consistent-read \
-        --output text \
+  if ! _acceptedid=$(aws dynamodb get-item \\
+        --table-name "$TABLE_NAME" \\
+        --key file://"$_tmpfile" \\
+        --consistent-read \\
+        --output text \\
         --query 'Item.${col}.S'); then
     echo "[$_localdate] unable to fetch runId, retrying..."
     sleep $_sleep
@@ -133,10 +135,11 @@ while true; do
 }
 JSON
 
-  if ! _runid=$(aws dynamodb get-item \
-        --key file://$_tmpfile \
-        --consistent-read \
-        --output text \
+  if ! _runid=$(aws dynamodb get-item \\
+        --table-name "$TABLE_NAME" \\
+        --key file://"$_tmpfile" \\
+        --consistent-read \\
+        --output text \\
         --query 'Item.runId.S'); then
     echo "[$_localdate] unable to fetch runId, retrying..."
     sleep $_sleep

@@ -23,6 +23,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "script:output": "npx tsx __tests__/test-script.ts",
     "bundle": "npm run format:write && npm run package",
     "ci-test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx jest",
     "coverage": "npx make-coverage-badge --output-path ./badges/coverage.svg",

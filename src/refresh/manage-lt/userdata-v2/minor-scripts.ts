@@ -9,10 +9,10 @@ export function fetchGHTokenScript(filename: string) {
 
   const script = `#!/bin/bash
 
-_localtoken=$(aws dynamodb get-item \
-  --table-name $TABLE_NAME \
-  --key '{ "PK": { "S" : "TYPE#${ent}" } }, "SK" : { "S" : "ID#${id}" } }' \
-  --query "Item.${col}.M.token.S" \
+_localtoken=$(aws dynamodb get-item \\
+  --table-name $TABLE_NAME \\
+  --key '{ "PK": { "S" : "TYPE#${ent}" }, "SK" : { "S" : "ID#${id}" } }' \\
+  --query "Item.${col}.M.token.S" \\
   --output text)
 
 echo "$_localtoken"

@@ -97,12 +97,12 @@ while true; do
     
   START_TIME=$(date +%s)
   
-  if ! ./config.sh \
-    --url https://github.com/$GH_OWNER/$GH_REPO \
-    --name $INSTANCE_ID \
-    --replace true \
-    --token $_gh_reg_token \
-    --no-default-labels \
+  if ! ./config.sh \\
+    --url https://github.com/$GH_OWNER/$GH_REPO \\
+    --name $INSTANCE_ID \\
+    --replace true \\
+    --token $_gh_reg_token \\
+    --no-default-labels \\
     --labels $_loop_id; then
     
     ./emit-signal.sh "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 

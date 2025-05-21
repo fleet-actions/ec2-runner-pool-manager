@@ -54669,19 +54669,30 @@ async function provision(inputs) {
     // selection()
     // .given resource pool, and requirements, pickup valid instance ids
     // 📝 Will need dumping mechanism (??) - or atleast deference to creation??
-    const selectionOutput = await selection({
-        instanceCount: composedInputs.instanceCount,
-        resourceClass: composedInputs.resourceClass,
-        // 🔍 for knowing which queue to ref & requeueing
-        resourceClassConfig: composedInputs.resourceClassConfig,
-        allowedInstanceTypes: composedInputs.allowedInstanceTypes,
-        sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
-        ddbOps: {
-            instanceOperations: ddbService.getInstanceOperations(),
-            heartbeatOperations: ddbService.getHeartbeatOperations()
-        }, // ddb for: locking, etc.
-        runId
-    });
+    let selectionOutput;
+    if (process.env.DISABLE_SELECTION === 'true') {
+        selectionOutput = {
+            numInstancesSelected: 0,
+            numInstancesRequired: inputs.instanceCount,
+            instances: [],
+            labels: []
+        };
+    }
+    else {
+        selectionOutput = await selection({
+            instanceCount: composedInputs.instanceCount,
+            resourceClass: composedInputs.resourceClass,
+            // 🔍 for knowing which queue to ref & requeueing
+            resourceClassConfig: composedInputs.resourceClassConfig,
+            allowedInstanceTypes: composedInputs.allowedInstanceTypes,
+            sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
+            ddbOps: {
+                instanceOperations: ddbService.getInstanceOperations(),
+                heartbeatOperations: ddbService.getHeartbeatOperations()
+            }, // ddb for: locking, etc.
+            runId
+        });
+    }
     // CREATION
     // creation()
     // .given what is left + constraints (cpu, mmem) + locations (subnet ids), create fleet

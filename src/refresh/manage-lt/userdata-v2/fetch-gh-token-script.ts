@@ -10,7 +10,7 @@ export function fetchGHTokenScript() {
 
 localtoken=$(aws dynamodb get-item \
   --table-name $TABLE_NAME \
-  --key '{"PK":{"S":"TYPE#${ent}}"},"SK":{"S":"ID#${id}"}}' \
+  --key '{ "PK": { "S" : "TYPE#${ent}" } }, "SK" : { "S" : "ID#${id}" } }' \
   --query "Item.${col}.M.token.S" \
   --output text)
 

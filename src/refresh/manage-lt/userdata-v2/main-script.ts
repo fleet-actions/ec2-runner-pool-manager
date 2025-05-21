@@ -3,17 +3,12 @@ import * as core from '@actions/core'
 import sha256 from 'crypto-js/sha256.js'
 import { LTDatav2 } from '../../../services/types.js'
 import { GitHubContext } from '../../../services/types.js'
-import { BootstrapOperations as BootstrapConstants } from '../../../services/dynamodb/operations/bootstrap-operations.js'
-import { HeartbeatOperations as HeartbeatConstants } from '../../../services/dynamodb/operations/heartbeat-operations.js'
-import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
-import {
-  WorkerSignalOperations,
-  LeaderSignalOperations
-} from '../../../services/dynamodb/operations/signal-operations.js'
 import { emitSignalScript } from './emit-signal-script.js'
 import { fetchGHTokenScript } from './fetch-gh-token-script.js'
 import { heartbeatScript } from './heartbeat-script.js'
 import { selfTerminationScript } from './self-termination-script.js'
+import { userScript } from './user-script.js'
+import { downloadRunnerArtifactScript } from './download-runner-artifact-script.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -33,20 +28,7 @@ export function addBuiltInScript(
   context: GitHubContext,
   input: LTDatav2
 ): LTDatav2 {
-  const {
-    VALUE_COLUMN_NAME: BOOTSTRAP_COLUMN_NAME,
-    ENTITY_TYPE: BOOTSTRAP_ENTITY,
-    STATUS: BOOTSTRAP_STATUS
-  } = BootstrapConstants
-
-  const {
-    VALUE_COLUMN_NAME: HEARTBEAT_COLUMN_NAME,
-    ENTITY_TYPE: HEARTBEAT_ENTITY,
-    STATUS: HEARTBEAT_STATUS,
-    PERIOD_SECONDS: HEARTBEAT_PERIOD_SECONDS
-  } = HeartbeatConstants
-
-  const INSTANCE_ENTITY_TYPE = InstanceOperations.ENTITY_TYPE
+  const RUNNER_VERSION = '2.323.0'
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
@@ -61,40 +43,10 @@ mkdir -p actions-runner && cd actions-runner
 export TABLE_NAME="${tableName}"
 export GH_OWNER="${context.owner}"
 export GH_REPO="${context.repo}"
-export BOOTSTRAP_ENTITY="${BOOTSTRAP_ENTITY}"
-export BOOTSTRAP_COLUMN_NAME="${BOOTSTRAP_COLUMN_NAME}"
-export USERDATA_COMPLETED="${BOOTSTRAP_STATUS.USERDATA_COMPLETED}"
-export USERDATA_REGISTRATION_COMPLETED="${BOOTSTRAP_STATUS.USERDATA_REGISTRATION_COMPLETED}"
-export HEARTBEAT_COLUMN_NAME="${HEARTBEAT_COLUMN_NAME}"
-export HEARTBEAT_ENTITY="${HEARTBEAT_ENTITY}"
-export HEARTBEAT_STATE="${HEARTBEAT_STATUS.PING}"
-export HEARTBEAT_PERIOD_SECONDS="${HEARTBEAT_PERIOD_SECONDS}"
-export INSTANCE_ENTITY_TYPE="${INSTANCE_ENTITY_TYPE}"
-
-### INPUTS USED FOR SIGNALLING
-export LS_ENTITY="${LeaderSignalOperations.ENTITY_TYPE}"
-export LS_COLUMN_NAME="${LeaderSignalOperations.VALUE_COLUMN_NAME}"
-export WS_ENTITY="${WorkerSignalOperations.ENTITY_TYPE}"
-export WS_COLUMN_NAME="${WorkerSignalOperations.VALUE_COLUMN_NAME}"
-export WS_OK_UD="${WorkerSignalOperations.OK_STATUS.UD}"
-export WS_OK_UD_REG="${WorkerSignalOperations.OK_STATUS.UD_REG}"
-export WS_FAILED_UD="${WorkerSignalOperations.FAILED_STATUS.UD}"
-export WS_FAILED_UD_REG="${WorkerSignalOperations.FAILED_STATUS.UD_REG}"
 
 ### REMAINING INITIALIZATION
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 export INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
-
-### TEST INPUTS
-# TABLE_NAME="ci-test-partial-ci-test-partial-ec2-runner-pool-table-test"
-# BOOTSTRAP_ENTITY="BOOTSTRAP"
-# BOOTSTRAP_COLUMN_NAME="value"
-# USERDATA_COMPLETED="USERDATA_COMPLETED"
-# USERDATA_REGISTRATION_COMPLETED="USERDATA_REGISTRATION_COMPLETED"
-# HEARTBEAT_COLUMN_NAME="value"
-# HEARTBEAT_ENTITY="HEARTHBEAT"
-# HEARTBEAT_STATE="PING"
-# HEARTBEAT_PERIOD_SECONDS=5
 
 echo "Building reusable scripts"
 cat <<'EOF'> emit-signal.sh
@@ -117,53 +69,25 @@ ${selfTerminationScript()}
 EOF
 chmod +x self-termination.sh
 
-cat <<'EOF'> pre-runner-script.sh
-${input.userData}
-echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
-cat /var/log/user-data-completion.log
+cat <<'EOF'> user-script.sh
+${userScript(input.userData)}
 EOF
-chmod +x pre-runner-script.sh
+chmod +x user-script.sh
 
-
+cat <<'EOF'> download-runner-artifact.sh
+${downloadRunnerArtifactScript(RUNNER_VERSION)}
+EOF
+chmod +x download-runner-artifact.sh 
 
 ### USERDATA ###
 ### ... ###
 
-
-
-echo "Successfully initialized info..."
-
-### UPDATING DDB WITH UD-COMPLETE
-DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-TMPFILE=$(mktemp /tmp/ddb-item-udcomplete.XXXXXX.json)
-cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$BOOTSTRAP_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$BOOTSTRAP_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$BOOTSTRAP_COLUMN_NAME": { "S": "$USERDATA_COMPLETED" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-aws dynamodb put-item \
-  --table-name "$TABLE_NAME" \
-  --item file://"$TMPFILE"
-rm -f "$TMPFILE"
-echo "UD completed communicated to DDB..."
-
 ### REGISTRATION ROUTINE
 ### ... ###
 
-echo "Registering to GH..."
-case $(uname -m) in
-  aarch64|arm64) ARCH="arm64";;
-  amd64|x86_64)  ARCH="x64";;
-esac && export RUNNER_ARCH=$ARCH
 
-GH_RUNNER_VERSION=2.323.0
-curl -O -L https://github.com/actions/runner/releases/download/v$GH_RUNNER_VERSION/actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
-tar xzf ./actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
+
+
 
 export RUNNER_ALLOW_RUNASROOT=1
 # EC2 Instance ID Uniqueness - https://serverfault.com/questions/58401/is-the-amazon-ec2-instance-id-unique-forever
@@ -178,134 +102,6 @@ if [ $CONFIG_EXIT_CODE -ne 0 ]; then
   echo "Error: GitHub Actions Runner config.sh failed with exit code $CONFIG_EXIT_CODE." >&2
   exit $CONFIG_EXIT_CODE
 fi
-
-echo "GH Registration script completed..."
-
-### UPDATING DDB WITH UD-REG COMPLETE
-DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-TMPFILE=$(mktemp /tmp/ddb-item-udreg.XXXXXX.json)
-cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$BOOTSTRAP_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$BOOTSTRAP_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$BOOTSTRAP_COLUMN_NAME": { "S": "$USERDATA_REGISTRATION_COMPLETED" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-aws dynamodb put-item \
-  --table-name "$TABLE_NAME" \
-  --item file://"$TMPFILE"
-rm -f "$TMPFILE"
-echo "UD-Registration completed communicated to DDB..."
-
-echo "exporting variables for async scripts (heartbeat & termination)"
-export TABLE_NAME INSTANCE_ID
-export HEARTBEAT_COLUMN_NAME HEARTBEAT_ENTITY HEARTBEAT_STATE HEARTBEAT_PERIOD_SECONDS
-export INSTANCE_ENTITY_TYPE 
-
-echo "Writing heartbeat script..."
-cat <<'EOF' > heartbeat.sh
-#!/bin/bash
-while true; do
-  DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TMPFILE=$(mktemp /tmp/ddb-item-heartbeat.XXXXXX.json)
-  cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$HEARTBEAT_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$HEARTBEAT_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$HEARTBEAT_COLUMN_NAME": { "S": "$HEARTBEAT_STATE" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-  if ! aws dynamodb put-item \
-    --table-name "$TABLE_NAME" \
-    --item file://"$TMPFILE"; then
-    rm -f "$TMPFILE"
-    echo "[$DATE] heartbeat failed, retrying in [$HEARTBEAT_PERIOD_SECONDS]s..." >&2
-    sleep $HEARTBEAT_PERIOD_SECONDS
-    continue
-  fi
-  rm -f "$TMPFILE"
-  sleep $HEARTBEAT_PERIOD_SECONDS
-done
-EOF
-
-echo "Executing heartbeat in background..."
-chmod +x heartbeat.sh
-./heartbeat.sh &
-
-echo "Writing termination script..."
-cat <<'EOF' > termination.sh
-#!/usr/bin/env bash
-INTERVAL=15
-
-while true; do
-  DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TMPFILE=$(mktemp /tmp/ddb-item-instance.XXXXXX.json)
-  cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$INSTANCE_ENTITY_TYPE" },
-  "SK": { "S": "ID#$INSTANCE_ID" }
-}
-JSON
-
-  # 1) Try fetching threshold, retry on API error
-  if ! THRESHOLD=$(
-      aws dynamodb get-item \
-        --table-name "$TABLE_NAME" \
-        --key file://"$TMPFILE" \
-        --query 'Item.threshold.S' \
-        --consistent-read \
-        --output text
-    ); then
-    echo "[$DATE] DynamoDB get-item failed; retrying in $INTERVAL s…" >&2
-    rm -f "$TMPFILE"
-    sleep $INTERVAL
-    continue
-  fi
-  rm -f "$TMPFILE"
-
-  echo "[$DATE] Fetched threshold: $THRESHOLD"
-
-  # 2) No data yet?
-  if [ -z "$THRESHOLD" ] || [ "$THRESHOLD" = "None" ]; then
-    echo "[$DATE] No threshold recorded yet or item not available; sleeping $INTERVAL s…" >&2
-    sleep $INTERVAL
-    continue
-  fi
-
-  # 3) Add buffer and compare
-  THRESHOLD_BUFFER=$(date -u -d "$THRESHOLD + 1 minute" +"%Y-%m-%dT%H:%M:%SZ")
-  NOW_S=$(date -u +%s)
-  TSB_S=$(date -u -d "$THRESHOLD_BUFFER" +%s)
-  DELTA_S=$(( TSB_S - NOW_S ))
-  echo "[$DATE] Difference: $DELTA_S seconds (threshold+buffer vs now)"
-
-  # 4) Self-terminate when due
-  if [ "$TSB_S" -lt "$NOW_S" ]; then
-    echo "[$DATE] Deadline passed; initiating self-termination…"
-    if aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"; then
-      echo "[$DATE] Termination API call succeeded; exiting."
-      break
-    else
-      echo "[$DATE] Termination call failed; retrying in $INTERVAL s…" >&2
-      sleep $INTERVAL
-      continue
-    fi
-  fi
-
-  echo "[$DATE] Not yet due; sleeping $INTERVAL s…"
-  sleep $INTERVAL
-done
-EOF
-
-echo "Executing termination script in background..."
-chmod +x termination.sh
-./termination.sh &
 
 ### STARTING RUNNER
 # echo "Running run.sh"

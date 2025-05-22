@@ -42,16 +42,16 @@ ${functionName}() {
           --consistent-read \\
           --output text
       ); then
-      echo "[$_localdate] DynamoDB get-item failed; retrying in $_period s…" >&2
+      echo "[$_localdate ($$)] DynamoDB get-item failed; retrying in $_period s…" >&2
       sleep $_period
       continue
     fi
 
-    echo "[$_localdate] Fetched _threshold: $_threshold"
+    echo "[$_localdate ($$)] Fetched _threshold: $_threshold"
 
     # 2) No data yet?
     if [ -z "$_threshold" ] || [ "$_threshold" = "None" ]; then
-      echo "[$_localdate] No _threshold recorded yet or item not available; sleeping $_period s…" >&2
+      echo "[$_localdate ($$)] No _threshold recorded yet or item not available; sleeping $_period s…" >&2
       sleep $_period
       continue
     fi
@@ -62,22 +62,22 @@ ${functionName}() {
     _now_s=$(date -u +%s)
     _tsb_s=$(date -u -d "$_buffer" +%s)
     _delta_s=$(( _tsb_s - _now_s ))
-    echo "[$_localdate] Difference: $_delta_s seconds (_threshold+_buffer vs now)"
+    echo "[$_localdate ($$)] Difference: $_delta_s seconds (_threshold+_buffer vs now)"
 
     # 4) Self-terminate when due
     if [ "$_tsb_s" -lt "$_now_s" ]; then
-      echo "[$_localdate] Deadline passed; initiating self-termination…"
+      echo "[$_localdate ($$)] Deadline passed; initiating self-termination…"
       if aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"; then
-        echo "[$_localdate] Termination API call succeeded; exiting."
+        echo "[$_localdate ($$)] Termination API call succeeded; exiting."
         break
       else
-        echo "[$_localdate] Termination call failed; retrying in $_period s…" >&2
+        echo "[$_localdate ($$)] Termination call failed; retrying in $_period s…" >&2
         sleep $_period
         continue
       fi
     fi
 
-    echo "[$_localdate] Not yet due; sleeping $_period s…"
+    echo "[$_localdate ($$)] Not yet due; sleeping $_period s…"
     sleep $_period
   done
 }
@@ -116,7 +116,7 @@ JSON
       --table-name "$TABLE_NAME" \\
       --item file://"$_tmpfile"; then
       rm -f "$_tmpfile"
-      echo "[$_localdate] heartbeat failed, retrying in [${period}]s..." >&2
+      echo "[$_localdate ($$)] heartbeat failed, retrying in [${period}]s..." >&2
       sleep ${period}
       continue
     fi

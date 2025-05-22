@@ -138,6 +138,7 @@ while true; do
   # https://github.com/actions/runner/blob/main/src/Misc/layoutroot/run.sh
   RUNNER_MANUALLY_TRAP_SIG=1 ./run.sh & 
   _runner_pid=$!
+  echo "runner PID is $_runner_pid"
 
   # PART 5: IF NEEDED - monitor status of run.sh. 
   # ... For now, be optimistic of run.sh runtime
@@ -147,12 +148,17 @@ while true; do
 
   # PART 7: Send kill signal to listener pid and deregister
   echo "Initiating invalidation..."
-  if kill -TERM $_runner_pid; then
+  if kill -0 $_runner_pid; then
+    echo "run.sh pid still going $_runner_pid, sending kill signal..."
+    kill -TERM $_runner_pid
     wait $_runner_pid  
+  else
+    echo "run.sh pid $_runner_pid no longer running, unable to send kill signal..." 
   fi 
 
   # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
   _gh_reg_token=$(fetchGHToken)
+  echo "Now removing config..."
   ./config.sh remove --token "$_gh_reg_token"
 
   echo "Worker now should not be able to pickup jobs..."

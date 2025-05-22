@@ -31,7 +31,8 @@ export async function creation(input: CreationInput): Promise<CreationOuput> {
     resourceClass: input.resourceClass,
     allowedInstanceTypes: input.allowedInstanceTypes,
     numInstancesRequired: input.numInstancesRequired,
-    ec2Ops: input.ec2Ops.fleetOperations
+    ec2Ops: input.ec2Ops.fleetOperations,
+    runId: input.runId
   })
 
   // this is where we would determine

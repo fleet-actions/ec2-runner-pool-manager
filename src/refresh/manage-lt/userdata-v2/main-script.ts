@@ -111,11 +111,14 @@ while true; do
     
   START_TIME=$(date +%s)
   
+  # Disable auto-updates of runner. Auto-updates causes hangs on kill -TERM runner_pid. 
+  # .TODO - consider either: parameterize gh runner version or metadata ddb fetch to avoid deprecations
   if ! ./config.sh \\
     --url https://github.com/$GH_OWNER/$GH_REPO \\
     --name "$INSTANCE_ID" \\
     --replace true \\
     --token "$_gh_reg_token" \\
+    --disableupdate \\
     --no-default-labels \\
     --labels "$_loop_id"; then
     
@@ -146,20 +149,27 @@ while true; do
   # PART 6: Wait for leader worker no longer needs to listen
   blockInvalidationSpinner "$_loop_id" "${longS}"
 
-  # PART 7: Send kill signal to listener pid and deregister
-  echo "Initiating invalidation..."
+  # PART 7: Send kill signal to listener pid and deregister  
+  # https://github.com/actions/runner/issues/971#issuecomment-2047860279
+  echo "Initiating invalidation (config remove THEN kill run pid)..."
+
+  # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
+  _gh_reg_token=$(fetchGHToken)
+  echo "Removing config..."
+  ./config.sh remove --token "$_gh_reg_token"
+
+  echo "Removing run.sh and helpers..."
   if kill -0 $_runner_pid; then
     echo "run.sh pid still going $_runner_pid, sending kill signal..."
     kill -TERM $_runner_pid
+
+    # if this still hangs for too long, see comment above. 
+    # ... consider manual kill of run.sh, run-helper.sh, Runner.Listener run
     wait $_runner_pid  
   else
     echo "run.sh pid $_runner_pid no longer running, unable to send kill signal..." 
   fi 
 
-  # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
-  _gh_reg_token=$(fetchGHToken)
-  echo "Now removing config..."
-  ./config.sh remove --token "$_gh_reg_token"
 
   echo "Worker now should not be able to pickup jobs..."
 done

@@ -6,7 +6,7 @@ function printBanner(message) {
   const border = '#'.repeat(formattedMessage.length)
 
   console.log(border)
-  console.log(formattedMessage)
+  console.log(formattedMessage + `${process.env.RUN_ID || ''}`)
   console.log(border)
 }
 
@@ -25,6 +25,7 @@ const secondRefresh = process.env.SECOND_REFRESH
 const secondProvision = process.env.SECOND_PROVISION
 const cleanup = process.env.CLEANUP
 
+process.env.DISABLE_SELECTION = 'true'
 changeEnvRunId()
 
 const headlines = ["RUNNING: REFRESH -> PROVISION -> RELEASE"]

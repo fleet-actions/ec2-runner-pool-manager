@@ -79,12 +79,12 @@ fi
 ### USERDATA ###
 if ! ./user-script.sh; then
   >&2 echo "user-defined userdata unable to execute correctly. emitting signal..."
-  emitSignal "" "${WorkerSignalOperations.FAILED_STATUS.UD}"
+  emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.FAILED_STATUS.UD}"
   exit 1
 fi
 
 echo "user-defined userdata OK. emitting signal..."
-emitSignal "" "${WorkerSignalOperations.OK_STATUS.UD}"
+emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 
 ### FETCH ARTIFACTS ###
 ./download-runner-artifact.sh

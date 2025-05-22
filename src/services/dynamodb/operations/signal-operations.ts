@@ -60,8 +60,11 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     ids: string[],
     runId: string
   ): Promise<Signals> {
+    core.debug(`Received: ids ${ids}; runId: ${runId}`)
     const values = await this.getValues(ids)
+    core.debug(`Received ws values: ${JSON.stringify(values, null, 2)}`)
     const report = this.buildSignalReport(ids, values, runId)
+    core.debug(`Received ws signal report: ${JSON.stringify(report, null, 2)}`)
 
     // FAILURE MODES:
     // - ANY UD Failures
@@ -69,17 +72,24 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
 
     // Special Failure case:
     // Given ANY instance, if UD Failed is found - mark for failure
-    const f = WorkerSignalOperations.FAILED_STATUS.UD
-    const anyUDFailed = [...report.matchingIds[f], ...report.nonMatchingIds[f]]
-    if (anyUDFailed.length > 0) {
-      return 'failed'
-    }
+    // const f = WorkerSignalOperations.FAILED_STATUS.UD
+    // const anyUDFailed = [...report.matchingIds[f], ...report.nonMatchingIds[f]]
+    // if (anyUDFailed.length > 0) {
+    //   return 'failed'
+    // }
 
     // Rest of the failure cases:
     // Given runId, if any failed staus is found - mark for failure
     const hasAnyFailures = Object.values(
       WorkerSignalOperations.FAILED_STATUS
-    ).some((failedStatus) => report.matchingIds[failedStatus].length > 0)
+    ).some((failedStatus) => {
+      const ary = report.matchingIds[failedStatus]
+      if (!ary)
+        throw new Error(
+          `ERROR: ${failedStatus} may be an invalid state. Ary (${ary}) is not an valid array`
+        )
+      return ary.length > 0
+    })
 
     if (hasAnyFailures) {
       return 'failed'
@@ -199,12 +209,12 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     > = {}
 
     // Initialize all possible states from both OK and FAILED status objects
-    const allStatuses = {
-      ...WorkerSignalOperations.OK_STATUS,
-      ...WorkerSignalOperations.FAILED_STATUS
-    }
 
-    Object.values(allStatuses).forEach((status) => {
+    const statusArray: string[] = [
+      ...Object.values(WorkerSignalOperations.OK_STATUS),
+      ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+    ]
+    statusArray.forEach((status) => {
       matchingIds[status] = []
       nonMatchingIds[status] = []
     })
@@ -238,12 +248,6 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     // Log main summary with core.info
     let infoMessage = `Worker signal tracking: SUMMARY (matching runId: ${expectedRunId})\n`
     infoMessage += `- Missing: ${missing.join(', ') || 'none'}\n`
-
-    // Only include states that have matching IDs
-    // REMOVE THIS CODE
-    if (infoMessage.length === 1) {
-      core.info('remove this if statement')
-    }
 
     Object.entries(matchingIds).forEach(([state, stateIds]) => {
       if (stateIds.length > 0) {

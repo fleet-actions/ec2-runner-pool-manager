@@ -48,7 +48,8 @@ describe('Creation', () => {
         fleetOperations: {} as any,
         instanceOperations
       },
-      ddbOps: {} as any
+      ddbOps: {} as any,
+      runId: '777'
     }
 
     // Default mocked returns

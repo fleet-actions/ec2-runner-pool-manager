@@ -13,6 +13,7 @@ export interface FleetCreationInput {
   allowedInstanceTypes: string[]
   numInstancesRequired: number
   ec2Ops: FleetOperations
+  runId: string
 }
 
 export type MakeFleetAttemptInput = Omit<
@@ -34,7 +35,8 @@ export async function makeFleetAttempt(
     resourceClass,
     subnetIds,
     resourceSpec,
-    allowedInstanceTypes
+    allowedInstanceTypes,
+    runId
   } = input
 
   if (!launchTemplate.name)
@@ -54,7 +56,8 @@ export async function makeFleetAttempt(
       resourceSpec,
       allowedInstanceTypes,
       targetCapacity,
-      uniqueId
+      uniqueId,
+      runId
     })
 
     core.debug(

@@ -77,7 +77,8 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     ddbOps: {
       bootstrapOperations: ddbService.getBootstrapOperations(),
       heartbeatOperations: ddbService.getHeartbeatOperations()
-    }
+    },
+    runId
   })
 
   // POST-PROVISION

@@ -41917,19 +41917,22 @@ function buildSpotOptions() {
 /**
  * Creates tag specifications for the fleet resources.
  */
-function buildFleetTagSpecifications(uniqueId) {
+function buildFleetTagSpecifications({ uniqueId, runId }) {
     const fleetTags = [
         { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
         { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
     ];
-    const instanceTags = [{ Key: 'AllowSelfTermination', Value: 'true' }];
+    const instanceTags = [
+        { Key: 'AllowSelfTermination', Value: 'true' },
+        { Key: 'InitialRunId', Value: runId }
+    ];
     return [
         { ResourceType: 'fleet', Tags: fleetTags },
         { ResourceType: 'instance', Tags: instanceTags }
     ];
 }
 function buildFleetCreationInput(input) {
-    const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId } = input;
+    const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId, runId } = input;
     const launchTemplateSpecification = {
         LaunchTemplateName: launchTemplateName,
         Version: '$Default'
@@ -41937,7 +41940,7 @@ function buildFleetCreationInput(input) {
     const overrides = buildFleetOverrides(subnetIds, resourceSpec, allowedInstanceTypes);
     const targetCapacitySpec = buildTargetCapacitySpecification(targetCapacity);
     const spotOptions = buildSpotOptions();
-    const tagSpecifications = buildFleetTagSpecifications(uniqueId);
+    const tagSpecifications = buildFleetTagSpecifications({ uniqueId, runId });
     return {
         LaunchTemplateConfigs: [
             {
@@ -42021,7 +42024,7 @@ function processFleetResponse(input) {
  * This function focuses ONLY on making the API call with proper parameters.
  */
 async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
-    const { launchTemplate, resourceClass, subnetIds, resourceSpec, allowedInstanceTypes } = input;
+    const { launchTemplate, resourceClass, subnetIds, resourceSpec, allowedInstanceTypes, runId } = input;
     if (!launchTemplate.name)
         throw new Error('launch template name not set, abandoning fleet creation attempt...');
     coreExports.info(`Making fleet attempt ${attemptNumber} for ${targetCapacity} instances...`);
@@ -42034,7 +42037,8 @@ async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
             resourceSpec,
             allowedInstanceTypes,
             targetCapacity,
-            uniqueId
+            uniqueId,
+            runId
         });
         coreExports.debug(`Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`);
         // 2. Use FleetOperations to make the API call
@@ -42153,7 +42157,8 @@ async function creation(input) {
         resourceClass: input.resourceClass,
         allowedInstanceTypes: input.allowedInstanceTypes,
         numInstancesRequired: input.numInstancesRequired,
-        ec2Ops: input.ec2Ops.fleetOperations
+        ec2Ops: input.ec2Ops.fleetOperations,
+        runId: input.runId
     });
     // this is where we would determine
     // Do validation if fleet creation is 'state=success' (ie. capacity pool available)
@@ -51499,15 +51504,14 @@ class InstanceOperations extends BasicOperations {
     }
     // 🔍 REFRESH (managing terminations)
     async instanceTermination({ id, expectedState, expectedRunID }) {
-        const now = Date.now();
-        const nowThreshold = new Date(now * 1000).toISOString();
+        const now = this.getISOZDate();
         return await this.instanceStateTransition({
             id,
             expectedState,
             expectedRunID,
             newRunID: '',
             newState: 'terminated',
-            newThreshold: nowThreshold,
+            newThreshold: now,
             conditionSelectsUnexpired: false
         });
     }
@@ -54708,7 +54712,8 @@ async function provision(inputs) {
         ddbOps: {
             bootstrapOperations: ddbService.getBootstrapOperations(),
             heartbeatOperations: ddbService.getHeartbeatOperations()
-        }
+        },
+        runId
     });
     // POST-PROVISION
     // .if successful in creating fleet, release()

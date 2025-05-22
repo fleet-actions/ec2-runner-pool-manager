@@ -77,14 +77,21 @@ export function buildSpotOptions(): SpotOptionsRequest {
 /**
  * Creates tag specifications for the fleet resources.
  */
-export function buildFleetTagSpecifications(
+export function buildFleetTagSpecifications({
+  uniqueId,
+  runId
+}: {
   uniqueId: string
-): TagSpecification[] {
+  runId: string
+}): TagSpecification[] {
   const fleetTags: Tag[] = [
     { Key: 'Name', Value: `ec2-runner-pool-fleet-${uniqueId}` },
     { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
   ]
-  const instanceTags: Tag[] = [{ Key: 'AllowSelfTermination', Value: 'true' }]
+  const instanceTags: Tag[] = [
+    { Key: 'AllowSelfTermination', Value: 'true' },
+    { Key: 'InitialRunId', Value: runId }
+  ]
   return [
     { ResourceType: 'fleet', Tags: fleetTags },
     { ResourceType: 'instance', Tags: instanceTags }
@@ -101,6 +108,7 @@ export interface BuildFleetCreationInput {
   allowedInstanceTypes: string[]
   targetCapacity: number
   uniqueId: string
+  runId: string
 }
 
 export function buildFleetCreationInput(
@@ -112,7 +120,8 @@ export function buildFleetCreationInput(
     resourceSpec,
     allowedInstanceTypes,
     targetCapacity,
-    uniqueId
+    uniqueId,
+    runId
   } = input
   const launchTemplateSpecification: FleetLaunchTemplateSpecificationRequest = {
     LaunchTemplateName: launchTemplateName,
@@ -127,7 +136,7 @@ export function buildFleetCreationInput(
 
   const targetCapacitySpec = buildTargetCapacitySpecification(targetCapacity)
   const spotOptions = buildSpotOptions()
-  const tagSpecifications = buildFleetTagSpecifications(uniqueId)
+  const tagSpecifications = buildFleetTagSpecifications({ uniqueId, runId })
 
   return {
     LaunchTemplateConfigs: [

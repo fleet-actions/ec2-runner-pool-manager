@@ -31,6 +31,8 @@ export interface CreationInput {
   subnetIds: string[] // array of overrides created
   launchTemplate: LTDatav2 // refrenced launchTemplateName
 
+  runId: string // passing as initial id for instance to register against
+
   // Service objects
   // (creation) ec2 for creating fleets
   ec2Ops: {

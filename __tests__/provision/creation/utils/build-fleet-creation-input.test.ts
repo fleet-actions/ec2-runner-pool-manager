@@ -13,7 +13,8 @@ describe('buildFleetCreationInput fn', () => {
       resourceSpec: { cpu: 4, mmem: 8192 },
       allowedInstanceTypes: ['c5.xlarge', 'm5.xlarge'],
       targetCapacity: 3,
-      uniqueId: 'test-fleet-123'
+      uniqueId: 'test-fleet-123',
+      runId: '777'
     }
   })
 
@@ -71,7 +72,10 @@ describe('buildFleetCreationInput fn', () => {
         },
         {
           ResourceType: 'instance',
-          Tags: [{ Key: 'AllowSelfTermination', Value: 'true' }]
+          Tags: [
+            { Key: 'AllowSelfTermination', Value: 'true' },
+            { Key: 'InitialRunId', Value: '777' }
+          ]
         }
       ],
       ClientToken: 'test-fleet-123'

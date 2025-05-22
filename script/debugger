@@ -10,6 +10,11 @@ function printBanner(message) {
   console.log(border)
 }
 
+function changeEnvRunId() {
+  // overwrite process.env.RUN_ID
+  process.env.RUN_ID = Math.floor(Math.random() * 10_000_000_000)
+}
+
 function run(args) {
   const result = spawnSync('npx', args, { stdio: 'inherit' })
   return result.status
@@ -19,6 +24,8 @@ function run(args) {
 const secondRefresh = process.env.SECOND_REFRESH
 const secondProvision = process.env.SECOND_PROVISION
 const cleanup = process.env.CLEANUP
+
+changeEnvRunId()
 
 const headlines = ["RUNNING: REFRESH -> PROVISION -> RELEASE"]
 secondRefresh === 'true' && headlines.push("-> 2ND REFRESH")
@@ -65,6 +72,8 @@ if (secondRefresh === 'true') {
 }
 
 // 2nd provision for (any) instance pickups
+// overwrite process.env.RUN_ID on second provision
+changeEnvRunId()
 if (secondProvision === 'true') {
   printBanner('RUNNING: 2ND PROVISION')
   run([

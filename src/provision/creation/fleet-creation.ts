@@ -59,7 +59,7 @@ export async function makeFleetAttempt(
       allowedInstanceTypes,
       targetCapacity,
       uniqueId,
-      runId
+      runId // still sending initialRunId to ec2 instance tags. This for WS UD signals
     })
 
     core.debug(

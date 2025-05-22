@@ -1,10 +1,27 @@
 import { InstanceOperations } from '../../../services/dynamodb/operations/instance-operations.js'
 import { HeartbeatOperations } from '../../../services/dynamodb/operations/heartbeat-operations.js'
 
-export function selfTermination(period = 15) {
+export function heredocAndchmod({
+  filename,
+  script
+}: {
+  filename: string
+  script: string
+}): string {
+  return `cat <<'EOF'> ${filename}
+${script}
+EOF
+chmod +x ${filename}
+`
+}
+
+const SELF_TERMINATION_FN_NAME = 'selfTermination'
+const HEARTBEAT_FN_NAME = 'heartbeat'
+
+function selfTermination(period = 15) {
   const ent = InstanceOperations.ENTITY_TYPE
   const col = 'threshold' // NOTE: magic string
-  const functionName = 'selfTermination'
+  const functionName = SELF_TERMINATION_FN_NAME
 
   const script = `
 # Function to monitor and self-terminate when threshold is reached
@@ -69,12 +86,12 @@ ${functionName}() {
   return script.trim()
 }
 
-export function heartbeat() {
+function heartbeat() {
   const ent = HeartbeatOperations.ENTITY_TYPE
   const col = HeartbeatOperations.VALUE_COLUMN_NAME
   const state = HeartbeatOperations.STATUS.PING
   const period = HeartbeatOperations.PERIOD_SECONDS
-  const functionName = 'heartbeat'
+  const functionName = HEARTBEAT_FN_NAME
 
   const script = `
 # Function to emit periodic heartbeat signals
@@ -110,4 +127,28 @@ JSON
 `
 
   return script.trim()
+}
+
+// NOTE: wrapping in executable scripts so that we can grep in ps -aux
+
+export function selfTerminationScript(filename: string, period = 15) {
+  const script = `
+${selfTermination(period)}
+
+# execute function
+${SELF_TERMINATION_FN_NAME}
+`.trim()
+
+  return heredocAndchmod({ filename, script })
+}
+
+export function heartbeatScript(filename: string) {
+  const script = `
+${heartbeat()}
+
+# execute function
+${HEARTBEAT_FN_NAME}
+`.trim()
+
+  return heredocAndchmod({ filename, script })
 }

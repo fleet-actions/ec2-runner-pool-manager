@@ -12,7 +12,7 @@ import {
   blockRunSpinner,
   blockInvalidationSpinner
 } from './spinners.js'
-import { heartbeat, selfTermination } from './background.js'
+import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -57,15 +57,16 @@ INITIAL_RUN_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.2
 
 export INSTANCE_ID
 
-echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
+echo "Building reusables (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
 ${emitSignal()}
 ${fetchGHToken()}
-${heartbeat()}
-${selfTermination()}
 ${blockRegistrationSpinner()}
 ${blockRunSpinner()}
 ${blockInvalidationSpinner()}
 
+echo "Scripts (are chmod +x)"
+${heartbeatScript('heartbeat.sh')}
+${selfTerminationScript('self-termination.sh')}
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 
@@ -90,8 +91,8 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 ./download-runner-artifact.sh
 
 ### SETUP BACKGROUND SCRIPTS ###
-heartbeat &
-selfTermination &
+./heartbeat.sh &
+./self-termination.sh &
 
 ### REGISTRATION LOOP ###
 export RUNNER_ALLOW_RUNASROOT=1 
@@ -99,16 +100,11 @@ export RUNNER_ALLOW_RUNASROOT=1
 while true; do
   echo "Starting registration loop..."
 
-  # PART 1: Confirmation of new pool (! -z RECORDED), use initial id if not empty. Empty soon after.
-  if [ -n "$INITIAL_RUN_ID" ]; then
-    _loop_id=$INITIAL_RUN_ID
-    INITIAL_RUN_ID="" 
-  else
-    _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-    blockRegistrationSpinner "$_tmpfile" "${longS}"
-    _loop_id=$(cat "$_tmpfile")
-    rm -f "$_tmpfile"    
-  fi 
+  # PART 1: Confirmation of new pool (! -z RECORDED)
+  _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
+  blockRegistrationSpinner "$_tmpfile" "${longS}"
+  _loop_id=$(cat "$_tmpfile")
+  rm -f "$_tmpfile"    
 
   # PART 2: Register to worker GH with valid token & emit
   _gh_reg_token=$(fetchGHToken)

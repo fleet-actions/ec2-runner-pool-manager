@@ -32,6 +32,7 @@ export async function creation(input: CreationInput): Promise<CreationOuput> {
     allowedInstanceTypes: input.allowedInstanceTypes,
     numInstancesRequired: input.numInstancesRequired,
     ec2Ops: input.ec2Ops.fleetOperations,
+    ddbOps: input.ddbOps.instanceOperations,
     runId: input.runId
   })
 

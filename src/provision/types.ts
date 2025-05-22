@@ -1,7 +1,6 @@
 import { FleetOperations } from '../services/ec2/operations/fleet-operations.js'
 // import { BootstrapOperations } from '../services/dynamodb/operations/bootstrap-operations.js'
 import { HeartbeatOperations } from '../services/dynamodb/operations/heartbeat-operations.js'
-import { InstanceOperations } from '../services/ec2/operations/instance-operations.js'
 import type {
   ResourceSpec,
   LTDatav2,
@@ -41,7 +40,7 @@ export interface CreationInput {
   // (creation) ec2 for creating fleets
   ec2Ops: {
     fleetOperations: FleetOperations
-    instanceOperations: InstanceOperations
+    instanceOperations: EC2InstanceOperations
   }
 
   // (creation) ddb for validation
@@ -49,6 +48,7 @@ export interface CreationInput {
     // bootstrapOperations: BootstrapOperations
     heartbeatOperations: HeartbeatOperations
     workerSignalOperations: WorkerSignalOperations
+    instanceOperations: DDBInstanceOperations
   }
 
   // (creation) no need for sqs, keep creation focused

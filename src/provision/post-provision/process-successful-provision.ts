@@ -53,7 +53,7 @@ export async function processCreatedInstances(
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // ACCEPT & REGISTER --- usage of .all here to throw
+  // ACCEPT & RUNNING REGISTER --- usage of .all here to throw
 
   // ACCEPT
   await Promise.all(
@@ -65,15 +65,13 @@ export async function processCreatedInstances(
     })
   )
 
-  // REGISTER
+  // RUNNING REGISTER
   await Promise.all(
     creationOutput.instances.map(async (instance) => {
-      return instanceOperations.instanceRegistration({
+      return instanceOperations.instanceRunningRegistration({
         id: instance.id,
         runId,
-        threshold,
-        resourceClass: instance.resourceClass,
-        instanceType: instance.instanceType
+        threshold
       })
     })
   )

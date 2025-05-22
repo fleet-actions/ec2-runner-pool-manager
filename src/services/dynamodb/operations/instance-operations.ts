@@ -14,7 +14,12 @@ import { BasicOperations } from './basic-operations.js'
 import type { BasicItem } from './basic-operations.js'
 import { DynamoDBClient } from '../dynamo-db-client.js'
 
-export type InstanceStates = 'idle' | 'claimed' | 'running' | 'terminated'
+export type InstanceStates =
+  | 'idle'
+  | 'claimed'
+  | 'running'
+  | 'terminated'
+  | 'created'
 
 // Basic item defined PK, SK, updatedAt, etc.
 export interface InstanceItem extends BasicItem {
@@ -143,8 +148,9 @@ export class InstanceOperations extends BasicOperations {
   }
 
   // PROVISION (Regisration of created instances)
-  // 🔍 Registers instance to running from creation
-  async instanceRegistration({
+  // WEAK & STRONG REGISTRATION
+  // WEAK: 'created', still unknown if instance has booted up OK. state of instance on initial creation, only comms initial runId and reasonable threshold
+  async instanceCreatedRegistration({
     id,
     runId,
     threshold,
@@ -157,7 +163,7 @@ export class InstanceOperations extends BasicOperations {
     resourceClass: string
     instanceType: string
   }): Promise<boolean> {
-    core.info(`Registering instance ${id} as 'running'`)
+    core.info(`Registering instance ${id} as 'created'`)
 
     // 🔍 pre-process threshold to hold standard internal isoz format
     threshold = this.getISOZDate(threshold)
@@ -167,13 +173,47 @@ export class InstanceOperations extends BasicOperations {
       threshold,
       resourceClass,
       instanceType,
-      // 🔍 on instance registration, immediately running state
-      // .will be changed on warm pools
-      state: 'running'
+      // 🔍 on instance created registration, immediately 'created' state
+      // .will be changed on running registration
+      state: 'created'
     }
-    // perform conditional creation? (ie. check that the item has not existed before creation)
+
+    // the entrance state
     const result = await this.putInstanceItem(id, bareInstanceStates, true)
     return result
+  }
+
+  // STRONG: 'running', state of instance when confirmed set up.
+  // 🔍 Registers instance to running from creation
+  async instanceRunningRegistration({
+    id,
+    runId,
+    threshold
+  }: {
+    id: string
+    runId: string
+    threshold: string
+  }): Promise<boolean> {
+    core.info(`Registering instance ${id} as 'running' (from 'created')`)
+
+    // 🔍 pre-process threshold to hold standard internal isoz format
+    threshold = this.getISOZDate(threshold)
+
+    // perform transition from 'created' to 'running'
+    try {
+      await this.instanceStateTransition({
+        id,
+        expectedRunID: runId,
+        newRunID: runId,
+        expectedState: 'created',
+        newState: 'running',
+        newThreshold: threshold,
+        conditionSelectsUnexpired: true
+      })
+      return true
+    } catch (err: any) {
+      throw err
+    }
   }
 
   // 🔍 RELEASE

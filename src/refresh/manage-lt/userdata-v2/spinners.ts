@@ -28,7 +28,7 @@ ${functionName}() {
 
     if ! _runid=$(aws dynamodb get-item \\
           --table-name "$TABLE_NAME" \\
-          --key '{ "PK": { "S": { "TYPE#${ent}" } }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
           --consistent-read \\
           --output text \\
           --query 'Item.runId.S'); then
@@ -81,7 +81,7 @@ ${functionName}() {
 
     if ! _acceptedid=$(aws dynamodb get-item \\
           --table-name "$TABLE_NAME" \\
-          --key '{ "PK": { "S": { "TYPE#${ent}" } }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
           --consistent-read \\
           --output text \\
           --query 'Item.${col}.S'); then
@@ -131,7 +131,7 @@ ${functionName}() {
 
     if ! _runid=$(aws dynamodb get-item \\
           --table-name "$TABLE_NAME" \\
-          --key '{ "PK": { "S": { "TYPE#${ent}" } }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
           --consistent-read \\
           --output text \\
           --query 'Item.runId.S'); then

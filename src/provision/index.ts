@@ -94,7 +94,10 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     // 🔍 for knowing which queue to ref if any resources need releasing
     resourceClassConfig: composedInputs.resourceClassConfig,
     ec2Ops: ec2Service.getInstanceOperations(),
-    ddbOps: ddbService.getInstanceOperations(),
+    ddbOps: {
+      instanceOperations: ddbService.getInstanceOperations(),
+      leaderSignalOperations: ddbService.getLeaderSignalOperations()
+    },
     sqsOps: sqsService.getResourceClassConfigOperations()
   })
 

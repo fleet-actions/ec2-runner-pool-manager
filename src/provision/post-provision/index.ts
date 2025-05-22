@@ -45,7 +45,7 @@ export async function postProvision(input: PostProvisionInputs) {
         idleTimeSec,
         resourceClassConfig,
         runId,
-        ddbOps,
+        ddbOps: ddbOps.instanceOperations,
         sqsOps
       })
       core.setFailed(
@@ -65,7 +65,7 @@ export async function postProvision(input: PostProvisionInputs) {
       creationOutput,
       runId,
       ec2Ops,
-      ddbOps
+      ddbOps: ddbOps.instanceOperations
     })
     core.error(
       `Post-provision error: ${error instanceof Error ? error.message : String(error)}`

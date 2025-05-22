@@ -94,6 +94,8 @@ heartbeat &
 selfTermination &
 
 ### REGISTRATION LOOP ###
+export RUNNER_ALLOW_RUNASROOT=1 
+
 while true; do
   echo "Starting registration loop..."
 
@@ -138,7 +140,7 @@ while true; do
 
   # PART 4: Allow runner to listen (manual mode for deterministic/better control)
   # https://github.com/actions/runner/blob/main/src/Misc/layoutroot/run.sh
-  RUNNER_MANUALLY_TRAP_SIG=1 ./run.sh > runner.log 2>&1 & 
+  RUNNER_MANUALLY_TRAP_SIG=1 ./run.sh & 
   _runner_pid=$!
 
   # PART 5: IF NEEDED - monitor status of run.sh. 

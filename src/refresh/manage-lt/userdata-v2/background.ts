@@ -20,7 +20,7 @@ ${functionName}() {
     if ! _threshold=$(
         aws dynamodb get-item \\
           --table-name "$TABLE_NAME" \\
-          --key '{ "PK": { "S": { "TYPE#${ent}" } }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
           --query 'Item.${col}.S' \\
           --consistent-read \\
           --output text

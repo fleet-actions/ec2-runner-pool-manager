@@ -11,7 +11,10 @@ import type { InstanceMessage } from '../services/sqs/operations/resource-class-
 import { InstanceOperations as EC2InstanceOperations } from '../services/ec2/operations/instance-operations.js'
 import { InstanceOperations as DDBInstanceOperations } from '../services/dynamodb/operations/instance-operations.js'
 import { ResourceClassConfigOperations } from '../services/sqs/operations/resource-class-operations.js'
-import { WorkerSignalOperations } from '../services/dynamodb/operations/signal-operations.js'
+import {
+  LeaderSignalOperations,
+  WorkerSignalOperations
+} from '../services/dynamodb/operations/signal-operations.js'
 
 // NOTE: Allow for 'partial' when we decide to allow for multiple fleet attempts
 export type FleetStates = 'success' | 'partial' | 'failed'
@@ -90,6 +93,9 @@ export type PostProvisionInputs = {
   selectionOutput: SelectionOutput
   creationOutput: CreationOuput
   ec2Ops: EC2InstanceOperations // for dumping resources
-  ddbOps: DDBInstanceOperations // instance-operations
+  ddbOps: {
+    instanceOperations: DDBInstanceOperations
+    leaderSignalOperations: LeaderSignalOperations
+  } // instance-operations
   sqsOps: ResourceClassConfigOperations // resource class config (requeueing selected to pool)
 }

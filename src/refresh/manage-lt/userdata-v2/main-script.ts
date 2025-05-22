@@ -53,6 +53,13 @@ export GH_REPO="${context.repo}"
 ### REMAINING INITIALIZATION 
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+INITIAL_RUN_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/tags/instance/InitialRunId)
+
+if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
+  >&2 echo "InitialRunId not added to instance tag, exiting..."
+  exit 1
+fi
+
 export INSTANCE_ID
 
 echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
@@ -71,6 +78,7 @@ ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 if ! ./user-script.sh; then
   >&2 echo "user-defined userdata unable to execute correctly. emitting signal..."
   emitSignal "" "${WorkerSignalOperations.FAILED_STATUS.UD}"
+  exit 1
 fi
 
 echo "user-defined userdata OK. emitting signal..."
@@ -87,11 +95,16 @@ selfTermination &
 while true; do
   echo "Starting registration loop..."
 
-  # PART 1: Confirmation of new pool (! -z RECORDED)
-  _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  blockRegistrationSpinner "$_tmpfile" "${longS}"
-  _loop_id=$(cat "$_tmpfile")
-  rm -f "$_tmpfile"
+  # PART 1: Confirmation of new pool (! -z RECORDED), use initial id if not empty. Empty soon after.
+  if [ -n "$INITIAL_RUN_ID" ]; then
+    _loop_id=$INITIAL_RUN_ID
+    INITIAL_RUN_ID="" 
+  else
+    _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
+    blockRegistrationSpinner "$_tmpfile" "${longS}"
+    _loop_id=$(cat "$_tmpfile")
+    rm -f "$_tmpfile"    
+  fi 
 
   # PART 2: Register to worker GH with valid token & emit
   _gh_reg_token=$(fetchGHToken)

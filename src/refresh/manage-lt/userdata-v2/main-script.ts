@@ -32,7 +32,7 @@ export function addBuiltInScript(
   context: GitHubContext,
   input: LTDatav2
 ): LTDatav2 {
-  const RUNNER_VERSION = '2.323.0'
+  const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
   const longS = 1
   const shortS = 0.1
 
@@ -55,11 +55,6 @@ TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-meta
 INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 INITIAL_RUN_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/tags/instance/InitialRunId)
 
-if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
-  >&2 echo "InitialRunId not added to instance tag, exiting..."
-  exit 1
-fi
-
 export INSTANCE_ID
 
 echo "Building reusable scripts (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
@@ -73,6 +68,13 @@ ${blockInvalidationSpinner()}
 
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
+
+### SOME INITIALIZATION ###
+if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
+  >&2 echo "InitialRunId not added to instance tag, exiting..."
+  # TODO: Consider emitting a signal here for more info, although this is likely not to cause an issue
+  exit 1
+fi
 
 ### USERDATA ###
 if ! ./user-script.sh; then

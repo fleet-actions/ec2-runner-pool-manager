@@ -39,6 +39,7 @@ export async function creation(input: CreationInput): Promise<CreationOuput> {
   // Do validation if fleet creation is 'state=success' (ie. capacity pool available)
   const fleetState = await fleetValidation({
     fleetResult,
+    runId: input.runId,
     ddbOps: input.ddbOps
   })
 

@@ -2,7 +2,8 @@ import * as core from '@actions/core'
 import { LaunchTemplateOperations as ec2ltOps } from '../../services/ec2/operations/launch-template-operations.js'
 import { LaunchTemplateOperations as ddbltOps } from '../../services/dynamodb/operations/metadata-operations.js'
 import { hasLTChanged, populateLTName } from './helpers.js'
-import { composeUserData } from './userdata.js'
+// import { composeUserData } from './userdata.js'
+import { composeUserData } from './userdata-v2/main-script.js'
 import { LTDatav2, GitHubContext } from '../../services/types.js'
 
 // class exported for testability

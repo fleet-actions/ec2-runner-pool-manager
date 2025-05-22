@@ -12,6 +12,7 @@ import { BootstrapOperations } from './operations/bootstrap-operations.js'
 import { HeartbeatOperations } from './operations/heartbeat-operations.js'
 import { InstanceOperations } from './operations/instance-operations.js'
 import { ApplicationOperations } from './operations/application-operations.js'
+import { WorkerSignalOperations } from './operations/signal-operations.js'
 
 export class DynamoDBService {
   // 🔍 client made public for testing
@@ -52,6 +53,10 @@ export class DynamoDBService {
   // fleet creation
   getBootstrapOperations() {
     return new BootstrapOperations(this.client)
+  }
+
+  getWorkerSignalOperations() {
+    return new WorkerSignalOperations(this.client)
   }
 
   // fleet selection/creation

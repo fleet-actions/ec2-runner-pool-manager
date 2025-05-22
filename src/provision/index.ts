@@ -75,7 +75,8 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
       instanceOperations: ec2Service.getInstanceOperations() // 🔍 safety precaution, immediate termination on fleet failures
     },
     ddbOps: {
-      bootstrapOperations: ddbService.getBootstrapOperations(),
+      // bootstrapOperations: ddbService.getBootstrapOperations(),
+      workerSignalOperations: ddbService.getWorkerSignalOperations(),
       heartbeatOperations: ddbService.getHeartbeatOperations()
     },
     runId

@@ -16,9 +16,9 @@ export class LeaderSignalOperations extends BasicValueOperations<string> {
   }
 
   async sendSignal(inputs: SendSignalInputs) {
-    const { runId, instanceId } = inputs
+    const { runId: value, instanceId } = inputs
     // note: instanceId is SK
-    await this.updateValue(runId, instanceId)
+    await this.updateValue(value, instanceId)
   }
 }
 
@@ -49,6 +49,10 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
   static readonly FAILED_STATUS = {
     UD: 'UD_FAILED',
     UD_REG: 'UD_REG_FAILED'
+  }
+
+  constructor(client: DynamoDBClient) {
+    super(WorkerSignalOperations.ENTITY_TYPE, null, client)
   }
 
   // Convenience method to see if either UD or UD_REG (not restricted to UD only)
@@ -236,6 +240,11 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     infoMessage += `- Missing: ${missing.join(', ') || 'none'}\n`
 
     // Only include states that have matching IDs
+    // REMOVE THIS CODE
+    if (infoMessage.length === 1) {
+      core.info('remove this if statement')
+    }
+
     Object.entries(matchingIds).forEach(([state, stateIds]) => {
       if (stateIds.length > 0) {
         infoMessage += `- ${state}: ${stateIds.join(', ')}\n`

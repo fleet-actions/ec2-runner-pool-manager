@@ -1,13 +1,17 @@
 import * as core from '@actions/core'
 import { SelectionOutput, CreationOuput } from '../types.js'
 import { InstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
+import { LeaderSignalOperations } from '../../services/dynamodb/operations/signal-operations.js'
 
 export interface ProcessSuccessfulProvisionInputs {
   selectionOutput: SelectionOutput
   creationOutput: CreationOuput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+    leaderSignalOperations: LeaderSignalOperations
+  }
 }
 
 // 🔍 Creates the output interface th t other jobs are able to pick up
@@ -30,25 +34,41 @@ export interface ProcessCreatedInstancesInput {
   creationOutput: CreationOuput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+    leaderSignalOperations: LeaderSignalOperations
+  }
 }
 
-// 🔍 Register created instances as running
+// 🔍 created instances: Accept ---> register (internally as 'running')
 export async function processCreatedInstances(
   input: ProcessCreatedInstancesInput
 ) {
   core.info('Processing created instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { creationOutput, maxRuntimeMin, runId, ddbOps } = input
+  const { instanceOperations, leaderSignalOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // 🔍 usage of .all here to throw
+  // ACCEPT & REGISTER --- usage of .all here to throw
+
+  // ACCEPT
   await Promise.all(
     creationOutput.instances.map(async (instance) => {
-      return ddbOps.instanceRegistration({
+      return leaderSignalOperations.sendSignal({
+        runId,
+        instanceId: instance.id
+      })
+    })
+  )
+
+  // REGISTER
+  await Promise.all(
+    creationOutput.instances.map(async (instance) => {
+      return instanceOperations.instanceRegistration({
         id: instance.id,
         runId,
         threshold,
@@ -65,25 +85,41 @@ export interface ProcessSelectedInstancesInput {
   selectionOutput: SelectionOutput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+    leaderSignalOperations: LeaderSignalOperations
+  }
 }
 
-// 🔍 Selected instances transitioned from claimed to running
+// 🔍 selected instances: ACCEPT then transitioned from claimed->running
 export async function processSelectedInstances(
   input: ProcessSelectedInstancesInput
 ) {
   core.info('Processing selected instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { selectionOutput, maxRuntimeMin, runId, ddbOps } = input
+  const { instanceOperations, leaderSignalOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // transition instances from claimed to running
+  // ACCEPT & CLAIM->RUNNING --- usage of .all here to throw
+
+  // ACCEPT
   await Promise.all(
     selectionOutput.instances.map(async (instance) => {
-      return ddbOps.instanceStateTransition({
+      return leaderSignalOperations.sendSignal({
+        runId,
+        instanceId: instance.id
+      })
+    })
+  )
+
+  // CLAIM->RUNNING
+  await Promise.all(
+    selectionOutput.instances.map(async (instance) => {
+      return instanceOperations.instanceStateTransition({
         id: instance.id,
         expectedRunID: runId,
         newRunID: runId,

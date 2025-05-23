@@ -3,25 +3,6 @@ import { createWaiter, WaiterState, WaiterResult } from '@smithy/util-waiter'
 import { DynamoDBClient } from '../dynamo-db-client.js'
 import { BasicValueOperations } from './basic-operations.js'
 
-// export interface SendSignalInputs {
-//   instanceId: string
-//   runId: string
-// }
-
-// // Will appear as { "PK": "TYPE#LS", "SK": "i-123", value: "run-123" }
-// export class LeaderSignalOperations extends BasicValueOperations<string> {
-//   static readonly ENTITY_TYPE = 'LS'
-//   constructor(client: DynamoDBClient) {
-//     super(LeaderSignalOperations.ENTITY_TYPE, null, client)
-//   }
-
-//   async sendSignal(inputs: SendSignalInputs) {
-//     const { runId: value, instanceId } = inputs
-//     // note: instanceId is SK
-//     await this.updateValue(value, instanceId)
-//   }
-// }
-
 export interface WorkerSignalValue {
   runId: string
   state: string
@@ -106,9 +87,9 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     }
 
     // Success conditions:
-    // 1. All instances have UD_REG_OK state with matching runId
+    // 1. All instances have the demanded signal state with matching runId
     // 2. None are missing
-    const s = WorkerSignalOperations.OK_STATUS.UD_REG
+    const s = signal
     if (
       report.missing.length === 0 &&
       report.matchingIds[s].length === ids.length

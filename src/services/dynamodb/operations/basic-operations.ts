@@ -61,7 +61,7 @@ export class BasicOperations extends ApplicationOperations {
 
   async getGenericItem(
     newId: string | null = null,
-    isConsistentRead: boolean = false
+    isConsistentRead: boolean = true // because why not
   ): Promise<Record<string, any> | null> {
     const command = new GetCommand({
       TableName: this.tableName,

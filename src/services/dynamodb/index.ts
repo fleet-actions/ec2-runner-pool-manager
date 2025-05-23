@@ -8,7 +8,6 @@ import {
   LaunchTemplateOperations,
   GeneralMetadataOperations
 } from './operations/metadata-operations.js'
-import { BootstrapOperations } from './operations/bootstrap-operations.js'
 import { HeartbeatOperations } from './operations/heartbeat-operations.js'
 import { InstanceOperations } from './operations/instance-operations.js'
 import { ApplicationOperations } from './operations/application-operations.js'
@@ -50,18 +49,9 @@ export class DynamoDBService {
     return new GeneralMetadataOperations(this.client)
   }
 
-  // fleet creation
-  getBootstrapOperations() {
-    return new BootstrapOperations(this.client)
-  }
-
   getWorkerSignalOperations() {
     return new WorkerSignalOperations(this.client)
   }
-
-  // getLeaderSignalOperations() {
-  //   return new LeaderSignalOperations(this.client)
-  // }
 
   // fleet selection/creation
   getHeartbeatOperations() {

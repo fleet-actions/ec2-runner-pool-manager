@@ -1,7 +1,6 @@
 import * as core from '@actions/core'
 import { SelectionOutput, CreationOuput } from '../types.js'
 import { InstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
-// import { LeaderSignalOperations } from '../../services/dynamodb/operations/signal-operations.js'
 
 export interface ProcessSuccessfulProvisionInputs {
   selectionOutput: SelectionOutput
@@ -10,7 +9,6 @@ export interface ProcessSuccessfulProvisionInputs {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 
@@ -36,7 +34,6 @@ export interface ProcessCreatedInstancesInput {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 
@@ -85,7 +82,6 @@ export interface ProcessSelectedInstancesInput {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 

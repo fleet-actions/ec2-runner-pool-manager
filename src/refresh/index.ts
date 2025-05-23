@@ -97,7 +97,7 @@ export async function refresh(inputs: RefreshInputs): Promise<void> {
     ddbOps: {
       instanceOperations: ddbService.getInstanceOperations(),
       heartbeatOperations: ddbService.getHeartbeatOperations(),
-      bootstrapOperations: ddbService.getBootstrapOperations()
+      workerSignalOperations: ddbService.getWorkerSignalOperations()
     }
   })
 

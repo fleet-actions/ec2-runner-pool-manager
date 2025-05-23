@@ -5,13 +5,13 @@ import {
 } from '../services/dynamodb/operations/instance-operations.js'
 import { InstanceOperations as EC2InstanceOperations } from '../services/ec2/operations/instance-operations.js'
 import { HeartbeatOperations } from '../services/dynamodb/operations/heartbeat-operations.js'
-import { BootstrapOperations } from '../services/dynamodb/operations/bootstrap-operations.js'
+import { WorkerSignalOperations } from '../services/dynamodb/operations/signal-operations.js'
 
 export interface ManageTerminationsInputs {
   ddbOps: {
     instanceOperations: DDBInstanceOperations
     heartbeatOperations: HeartbeatOperations
-    bootstrapOperations: BootstrapOperations
+    workerSignalOperations: WorkerSignalOperations
   }
   ec2Ops: EC2InstanceOperations
 }
@@ -25,7 +25,7 @@ export async function manageTerminations(input: ManageTerminationsInputs) {
   core.info('Performing instance terminations...')
 
   const { ddbOps, ec2Ops } = input
-  const { instanceOperations, heartbeatOperations, bootstrapOperations } =
+  const { instanceOperations, heartbeatOperations, workerSignalOperations } =
     ddbOps
 
   // 🔍 Only fetch non-terminated instances
@@ -54,7 +54,7 @@ export async function manageTerminations(input: ManageTerminationsInputs) {
     await performArtifactCleanup({
       ids,
       heartbeatOperations,
-      bootstrapOperations
+      workerSignalOperations
     })
   } else {
     core.info(`No instances marekd for termination`)
@@ -142,17 +142,17 @@ export function logInstanceTerminationDiagnostics(
 export interface PerformArtifactCleanupInput {
   ids: string[]
   heartbeatOperations: HeartbeatOperations
-  bootstrapOperations: BootstrapOperations
+  workerSignalOperations: WorkerSignalOperations
 }
 
 export async function performArtifactCleanup(
   inputs: PerformArtifactCleanupInput
 ) {
-  const { ids, heartbeatOperations, bootstrapOperations } = inputs
-  core.info(`Performing artifact cleanup (heartbeat; bootstrap) for ${ids}`)
+  const { ids, heartbeatOperations, workerSignalOperations } = inputs
+  core.info(`Performing artifact cleanup (heartbeat; signal) for ${ids}`)
   await Promise.allSettled(ids.map((id) => heartbeatOperations.deleteItem(id)))
   await Promise.allSettled(
-    ids.map(async (id) => bootstrapOperations.deleteItem(id))
+    ids.map(async (id) => workerSignalOperations.deleteItem(id))
   )
   core.info(`Completed artifact cleanup`)
 }

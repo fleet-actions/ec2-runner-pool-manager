@@ -140,16 +140,23 @@ while true; do
   # PART 6: Wait for leader worker no longer needs to listen
   blockInvalidation "$_loop_id" "${longS}"
 
-  # PART 7: Remove .runner if found and perform general removal
-  echo "Found .runner, likely previously registered, removing..."
-  if ! [ -f .runner ] && rm .runner && ./config.sh remove ; then
-    echo "Unsuccessfully removed registration files, emitting signal..."
-    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}" 
-    exit 1
+  # PART 7: Remove .runner if found and perform general removal  
+  if [ -f .runner ]; then
+    echo "Found .runner removing..."
+    rm .runner
+  else
+    echo "no .runner found. following tokenless ./config.sh remove may fail..."
   fi
 
-  echo "Successfully removed registration files, emitting signal..."
-  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}" 
+  echo "Performing tokenless config.sh remove..."
+  if ./config.sh remove; then
+    echo "Successfully removed registration files, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
+  else
+    echo "Unsuccessfully removed registration files, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
+    exit 1
+  fi
 done
 `
 

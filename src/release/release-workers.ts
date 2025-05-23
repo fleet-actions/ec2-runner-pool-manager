@@ -43,8 +43,8 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
     instanceIds: [instanceId],
     runId,
     signal: demandedSignal,
-    timeoutSeconds: 120, // allow for 2 mins
-    intervalSeconds: 10
+    timeoutSeconds: 10, // allow for 10s
+    intervalSeconds: 2
   })
 
   if (result.state === true) {

@@ -7,12 +7,12 @@ import { WorkerSignalOperations } from '../../../services/dynamodb/operations/si
 import { emitSignal } from './emit-signal.js'
 import { fetchGHToken } from './fetch-token.js'
 import { userScript, downloadRunnerArtifactScript } from './minor-scripts.js'
+import { blockRegistration, blockInvalidation } from './blockers.js'
 import {
-  blockRegistrationSpinner,
-  blockRunSpinner,
-  blockInvalidationSpinner
-} from './spinners.js'
-import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
+  heartbeatScript,
+  selfTerminationScript,
+  keepRunnerAliveScript
+} from './background-scripts.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -34,7 +34,7 @@ export function addBuiltInScript(
 ): LTDatav2 {
   const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
   const longS = 1
-  const shortS = 0.1
+  // const shortS = 0.1
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
@@ -60,13 +60,13 @@ export INSTANCE_ID
 echo "Building reusables (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
 ${emitSignal()}
 ${fetchGHToken()}
-${blockRegistrationSpinner()}
-${blockRunSpinner()}
-${blockInvalidationSpinner()}
+${blockRegistration()}
+${blockInvalidation()}
 
 echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
+${keepRunnerAliveScript('keep-runner-alive.sh')}
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 
@@ -96,15 +96,17 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 
 ### REGISTRATION LOOP ###
 export RUNNER_ALLOW_RUNASROOT=1 
+export RUNNER_MANUALLY_TRAP_SIG=1
+./keep-runner-alive.sh &
 
 while true; do
   echo "Starting registration loop..."
 
-  # PART 1: Confirmation of new pool (! -z RECORDED)
+  # PART 0: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  blockRegistrationSpinner "$_tmpfile" "${longS}"
+  blockRegistration "$_tmpfile" "${longS}"
   _loop_id=$(cat "$_tmpfile")
-  rm -f "$_tmpfile"    
+  rm -f "$_tmpfile"
 
   # PART 2: Register to worker GH with valid token & emit
   _gh_reg_token=$(fetchGHToken)
@@ -119,6 +121,7 @@ while true; do
     --replace true \\
     --token "$_gh_reg_token" \\
     --disableupdate \\
+    --unattended \\
     --no-default-labels \\
     --labels "$_loop_id"; then
     
@@ -134,57 +137,19 @@ while true; do
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
-  # PART 3 ACK from leader of OK reg signal
-  blockRunSpinner "$_loop_id" "${shortS}"
-
-  # PART 4: Allow runner to listen (manual mode for deterministic/better control)
-  # https://github.com/actions/runner/blob/main/src/Misc/layoutroot/run.sh
-  RUNNER_MANUALLY_TRAP_SIG=1 ./run.sh & 
-  _runner_pid=$!
-  echo "runner PID is $_runner_pid"
-
-  # PART 5: IF NEEDED - monitor status of run.sh. 
-  # ... For now, be optimistic of run.sh runtime
-
   # PART 6: Wait for leader worker no longer needs to listen
-  blockInvalidationSpinner "$_loop_id" "${longS}"
+  blockInvalidation "$_loop_id" "${longS}"
 
-  # PART 7: Send kill signal to listener pid and deregister  
-  # https://github.com/actions/runner/issues/971#issuecomment-2047860279
-  echo "Initiating invalidation (config remove THEN kill run pid)..."
-
-  # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
-  _gh_reg_token=$(fetchGHToken)
-  echo "Removing config..."
-  if ! ./config.sh remove --token "$_gh_reg_token"; then
-    echo "Failed to ./config.sh remove, emitting signal..."
-    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
+  # PART 7: Remove .runner if found and perform general removal
+  echo "Found .runner, likely previously registered, removing..."
+  if ! [ -f .runner ] && rm .runner && ./config.sh remove ; then
+    echo "Unsuccessfully removed registration files, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}" 
     exit 1
   fi
 
-  echo "Successful ./config remove, now killing run.sh..."
-
-  START_TIME=$(date +%s)
-  # Criteria for killing run_pid failure is harder to define (consider bash timeout)
-  echo "Removing run.sh and helpers..."
-  if kill -0 $_runner_pid; then
-    echo "run.sh pid still going $_runner_pid, sending kill signal..."
-    kill -TERM $_runner_pid
-
-    # if this still hangs for too long, see comment above. 
-    # ... consider manual kill of run.sh, run-helper.sh, Runner.Listener run
-    wait $_runner_pid
-  else
-    echo "run.sh pid $_runner_pid no longer running, will not be sending kill signal..." 
-  fi
-
-  END_TIME=$(date +%s)
-  DELTA=$((END_TIME - START_TIME))
-  echo "run.sh graceful removal execution time: $DELTA seconds"  
-
-  echo "Successfully to removed run.sh and child processes, sending signal (ok if late)..."
+  echo "Successfully removed registration files, emitting signal..."
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}" 
-  echo "Worker now should not be able to pickup jobs..."
 done
 `
 

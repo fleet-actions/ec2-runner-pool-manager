@@ -3,24 +3,24 @@ import { createWaiter, WaiterState, WaiterResult } from '@smithy/util-waiter'
 import { DynamoDBClient } from '../dynamo-db-client.js'
 import { BasicValueOperations } from './basic-operations.js'
 
-export interface SendSignalInputs {
-  instanceId: string
-  runId: string
-}
+// export interface SendSignalInputs {
+//   instanceId: string
+//   runId: string
+// }
 
-// Will appear as { "PK": "TYPE#LS", "SK": "i-123", value: "run-123" }
-export class LeaderSignalOperations extends BasicValueOperations<string> {
-  static readonly ENTITY_TYPE = 'LS'
-  constructor(client: DynamoDBClient) {
-    super(LeaderSignalOperations.ENTITY_TYPE, null, client)
-  }
+// // Will appear as { "PK": "TYPE#LS", "SK": "i-123", value: "run-123" }
+// export class LeaderSignalOperations extends BasicValueOperations<string> {
+//   static readonly ENTITY_TYPE = 'LS'
+//   constructor(client: DynamoDBClient) {
+//     super(LeaderSignalOperations.ENTITY_TYPE, null, client)
+//   }
 
-  async sendSignal(inputs: SendSignalInputs) {
-    const { runId: value, instanceId } = inputs
-    // note: instanceId is SK
-    await this.updateValue(value, instanceId)
-  }
-}
+//   async sendSignal(inputs: SendSignalInputs) {
+//     const { runId: value, instanceId } = inputs
+//     // note: instanceId is SK
+//     await this.updateValue(value, instanceId)
+//   }
+// }
 
 export interface WorkerSignalValue {
   runId: string

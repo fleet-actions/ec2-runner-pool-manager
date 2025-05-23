@@ -129,6 +129,18 @@ JSON
   return script.trim()
 }
 
+export function keepRunnerAliveScript(filename: string, period = 5) {
+  const script = `#!/bin/bash
+set +e
+while true; do
+  ./run.sh 
+  sleep ${period} # this appears to be OK
+done
+`
+
+  return heredocAndchmod({ filename, script })
+}
+
 // NOTE: wrapping in executable scripts so that we can grep in ps -aux
 
 export function selfTerminationScript(filename: string, period = 15) {

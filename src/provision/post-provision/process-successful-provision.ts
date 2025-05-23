@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import { SelectionOutput, CreationOuput } from '../types.js'
 import { InstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
-import { LeaderSignalOperations } from '../../services/dynamodb/operations/signal-operations.js'
+// import { LeaderSignalOperations } from '../../services/dynamodb/operations/signal-operations.js'
 
 export interface ProcessSuccessfulProvisionInputs {
   selectionOutput: SelectionOutput
@@ -10,7 +10,7 @@ export interface ProcessSuccessfulProvisionInputs {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    leaderSignalOperations: LeaderSignalOperations
+    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 
@@ -36,7 +36,7 @@ export interface ProcessCreatedInstancesInput {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    leaderSignalOperations: LeaderSignalOperations
+    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 
@@ -47,7 +47,7 @@ export async function processCreatedInstances(
   core.info('Processing created instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { creationOutput, maxRuntimeMin, runId, ddbOps } = input
-  const { instanceOperations, leaderSignalOperations } = ddbOps
+  const { instanceOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
@@ -56,14 +56,14 @@ export async function processCreatedInstances(
   // ACCEPT & RUNNING REGISTER --- usage of .all here to throw
 
   // ACCEPT
-  await Promise.all(
-    creationOutput.instances.map(async (instance) => {
-      return leaderSignalOperations.sendSignal({
-        runId,
-        instanceId: instance.id
-      })
-    })
-  )
+  // await Promise.all(
+  //   creationOutput.instances.map(async (instance) => {
+  //     return leaderSignalOperations.sendSignal({
+  //       runId,
+  //       instanceId: instance.id
+  //     })
+  //   })
+  // )
 
   // RUNNING REGISTER
   await Promise.all(
@@ -85,7 +85,7 @@ export interface ProcessSelectedInstancesInput {
   runId: string
   ddbOps: {
     instanceOperations: InstanceOperations
-    leaderSignalOperations: LeaderSignalOperations
+    // leaderSignalOperations: LeaderSignalOperations
   }
 }
 
@@ -96,7 +96,7 @@ export async function processSelectedInstances(
   core.info('Processing selected instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { selectionOutput, maxRuntimeMin, runId, ddbOps } = input
-  const { instanceOperations, leaderSignalOperations } = ddbOps
+  const { instanceOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
@@ -105,14 +105,14 @@ export async function processSelectedInstances(
   // ACCEPT & CLAIM->RUNNING --- usage of .all here to throw
 
   // ACCEPT
-  await Promise.all(
-    selectionOutput.instances.map(async (instance) => {
-      return leaderSignalOperations.sendSignal({
-        runId,
-        instanceId: instance.id
-      })
-    })
-  )
+  // await Promise.all(
+  //   selectionOutput.instances.map(async (instance) => {
+  //     return leaderSignalOperations.sendSignal({
+  //       runId,
+  //       instanceId: instance.id
+  //     })
+  //   })
+  // )
 
   // CLAIM->RUNNING
   await Promise.all(

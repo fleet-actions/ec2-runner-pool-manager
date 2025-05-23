@@ -219,20 +219,16 @@ export class InstanceOperations extends BasicOperations {
     threshold = this.getISOZDate(threshold)
 
     // perform transition from 'created' to 'running'
-    try {
-      await this.instanceStateTransition({
-        id,
-        expectedRunID: runId,
-        newRunID: runId,
-        expectedState: 'created',
-        newState: 'running',
-        newThreshold: threshold,
-        conditionSelectsUnexpired: true
-      })
-      return true
-    } catch (err: any) {
-      throw err
-    }
+    await this.instanceStateTransition({
+      id,
+      expectedRunID: runId,
+      newRunID: runId,
+      expectedState: 'created',
+      newState: 'running',
+      newThreshold: threshold,
+      conditionSelectsUnexpired: true
+    })
+    return true
   }
 
   // 🔍 RELEASE

@@ -43,8 +43,8 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
     instanceIds: [instanceId],
     runId,
     signal: demandedSignal,
-    timeoutSeconds: 10, // allow for 10s
-    intervalSeconds: 2
+    timeoutSeconds: 60, // allow for 1min, this is long so that on the job get-item for blockInvalidation is long as well (cpu usage minimal when running jobs)
+    intervalSeconds: 5
   })
 
   if (result.state === true) {

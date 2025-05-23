@@ -164,6 +164,7 @@ while true; do
 
   echo "Successful ./config remove, now killing run.sh..."
 
+  START_TIME=$(date +%s)
   # Criteria for killing run_pid failure is harder to define (consider bash timeout)
   echo "Removing run.sh and helpers..."
   if kill -0 $_runner_pid; then
@@ -176,6 +177,10 @@ while true; do
   else
     echo "run.sh pid $_runner_pid no longer running, will not be sending kill signal..." 
   fi
+
+  END_TIME=$(date +%s)
+  DELTA=$((END_TIME - START_TIME))
+  echo "run.sh graceful removal execution time: $DELTA seconds"  
 
   echo "Successfully to removed run.sh and child processes, sending signal (ok if late)..."
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}" 

@@ -41,20 +41,15 @@ export async function releaseResources(input: ReleaseResourcesInput) {
       .join('\n')}`
   )
 
-  // Handle claimed instances (collect as errors but continue)
-  if (classified.claimed.length > 0) {
-    const claimedIds = classified.claimed.map((i) => i.identifier)
-    const message = `Found instances with runId ${runId} that are in 'claimed' state: ${claimedIds.join(', ')}`
-    errorMessages.push(message)
-    core.warning(message)
-  }
-
-  // Handle claimed instances (collect as errors but continue)
-  if (classified.idle.length > 0) {
-    const idleIds = classified.idle.map((i) => i.identifier)
-    const message = `Found instances with runId ${runId} that are in 'idle' state: ${idleIds.join(', ')}`
-    errorMessages.push(message)
-    core.warning(message)
+  // GATHER FOR REPORTING
+  const invalidStates: InstanceStates[] = ['created', 'claimed', 'idle']
+  for (const state of invalidStates) {
+    if (classified[state].length > 0) {
+      const ids = classified[state].map((i) => i.identifier)
+      const message = `Found instances with runId ${runId} that are in '${state}' state: ${ids.join(', ')}`
+      errorMessages.push(message)
+      core.warning(message)
+    }
   }
 
   // Process running instances
@@ -80,15 +75,11 @@ export async function releaseResources(input: ReleaseResourcesInput) {
       `Releasing ${successful.length} successfully transitioned instances to pool`
     )
     await sendToPools(successful, resourceClassConfig, sqsOps)
-  } else {
-    errorMessages.push(
-      'No instances were successfully transitioned to idle state'
-    )
   }
 
-  // Set the action as failed if there were any errors
+  // Instead of setting failures on presence of failures, I think OK with just setting release to always 'succeed'
   if (errorMessages.length > 0) {
-    core.setFailed(
+    core.warning(
       `Release completed with errors 😬:\n${errorMessages.join('\n')}`
     )
   } else {
@@ -104,7 +95,8 @@ function classifyInstancesByState(
     idle: [],
     running: [],
     claimed: [],
-    terminated: []
+    terminated: [],
+    created: []
   }
 
   instances.forEach((instance) => {

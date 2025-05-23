@@ -2,7 +2,7 @@ import { jest } from '@jest/globals'
 import { mock, MockProxy } from 'jest-mock-extended'
 import * as core from '../../../__fixtures__/core'
 import { HeartbeatOperations } from '../../../src/services/dynamodb/operations/heartbeat-operations'
-import { BootstrapOperations } from '../../../src/services/dynamodb/operations/bootstrap-operations'
+import { WorkerSignalOperations } from '../../../src/services/dynamodb/operations/signal-operations'
 import { FleetValidationInputs } from '../../../src/provision/creation/fleet-validation'
 import { Instance } from '../../../src/provision/types'
 
@@ -19,7 +19,7 @@ const { fleetValidation } = await import(
 describe('FleetValidation', () => {
   describe('Control Flow', () => {
     let mockInput: FleetValidationInputs
-    let mockBootstrapOps: MockProxy<BootstrapOperations>
+    let mockWorkerSignalOps: MockProxy<WorkerSignalOperations>
     let mockHeartbeatOps: MockProxy<HeartbeatOperations>
     const generic: Instance = {
       id: 'i-generic',
@@ -33,13 +33,13 @@ describe('FleetValidation', () => {
       jest.clearAllMocks()
 
       // Create mocks for external dependencies
-      mockBootstrapOps = mock<BootstrapOperations>()
+      mockWorkerSignalOps = mock<WorkerSignalOperations>()
       mockHeartbeatOps = mock<HeartbeatOperations>()
 
       // Setup default success states
-      mockBootstrapOps.areAllInstancesCompletePoll.mockResolvedValue({
+      mockWorkerSignalOps.pollOnSignal.mockResolvedValue({
         state: true,
-        message: 'all instances bootstrapped'
+        message: 'all instances completed'
       })
 
       mockHeartbeatOps.areAllInstancesHealthyPoll.mockResolvedValue({
@@ -54,9 +54,10 @@ describe('FleetValidation', () => {
           instances: [{ ...generic, id: 'i-123' }]
         },
         ddbOps: {
-          bootstrapOperations: mockBootstrapOps,
+          workerSignalOperations: mockWorkerSignalOps,
           heartbeatOperations: mockHeartbeatOps
-        }
+        },
+        runId: 'some-run-id'
       }
     })
 
@@ -66,16 +67,14 @@ describe('FleetValidation', () => {
     })
 
     // Add a new test for ordering
-    it('always calls bootstrap check before heartbeat check', async () => {
+    it('always calls ws check before heartbeat check', async () => {
       // Use mockImplementation to track call order
       const callOrder: string[] = []
 
-      mockBootstrapOps.areAllInstancesCompletePoll.mockImplementation(
-        async () => {
-          callOrder.push('bootstrap')
-          return { state: true, message: 'all good' }
-        }
-      )
+      mockWorkerSignalOps.pollOnSignal.mockImplementation(async () => {
+        callOrder.push('ws')
+        return { state: true, message: 'all good' }
+      })
 
       mockHeartbeatOps.areAllInstancesHealthyPoll.mockImplementation(
         async () => {
@@ -86,13 +85,13 @@ describe('FleetValidation', () => {
 
       await fleetValidation(mockInput)
 
-      expect(callOrder).toEqual(['bootstrap', 'heartbeat'])
-      expect(mockBootstrapOps.areAllInstancesCompletePoll).toHaveBeenCalled()
+      expect(callOrder).toEqual(['ws', 'heartbeat'])
+      expect(mockWorkerSignalOps.pollOnSignal).toHaveBeenCalled()
       expect(mockHeartbeatOps.areAllInstancesHealthyPoll).toHaveBeenCalled()
     })
 
-    it('handles exceptions from bootstrap operations', async () => {
-      mockBootstrapOps.areAllInstancesCompletePoll.mockRejectedValue(
+    it('handles exceptions from ws operations', async () => {
+      mockWorkerSignalOps.pollOnSignal.mockRejectedValue(
         new Error('DB connection error')
       )
 
@@ -107,7 +106,7 @@ describe('FleetValidation', () => {
     })
 
     it('handles exceptions from heartbeat operations', async () => {
-      mockBootstrapOps.areAllInstancesCompletePoll.mockResolvedValue({
+      mockWorkerSignalOps.pollOnSignal.mockResolvedValue({
         state: true,
         message: 'all good'
       })
@@ -122,8 +121,8 @@ describe('FleetValidation', () => {
       expect(core.warning).toHaveBeenCalledWith(
         expect.stringContaining('Error encountered')
       )
-      // bootstrap polling still called
-      expect(mockBootstrapOps.areAllInstancesCompletePoll).toHaveBeenCalled()
+      // ws polling still called
+      expect(mockWorkerSignalOps.pollOnSignal).toHaveBeenCalled()
     })
 
     describe('Scenarios for successive failures', () => {
@@ -137,9 +136,7 @@ describe('FleetValidation', () => {
           const result = await fleetValidation(mockInput)
 
           expect(result).toBe('failed')
-          expect(
-            mockBootstrapOps.areAllInstancesCompletePoll
-          ).not.toHaveBeenCalled()
+          expect(mockWorkerSignalOps.pollOnSignal).not.toHaveBeenCalled()
           expect(
             mockHeartbeatOps.areAllInstancesHealthyPoll
           ).not.toHaveBeenCalled()
@@ -148,27 +145,25 @@ describe('FleetValidation', () => {
       })
 
       // POLLLING ERRORS
-      // Change the existing bootstrap test to be more explicit
-      it('fails if bootstrap check returns false and skips heartbeat check', async () => {
-        mockBootstrapOps.areAllInstancesCompletePoll.mockResolvedValue({
+      // Change the existing ws test to be more explicit
+      it('fails if ws check returns false and skips heartbeat check', async () => {
+        mockWorkerSignalOps.pollOnSignal.mockResolvedValue({
           state: false,
-          message: 'bootstrap timeout'
+          message: 'ws timeout'
         })
 
         const result = await fleetValidation(mockInput)
 
         expect(result).toBe('failed')
-        expect(mockBootstrapOps.areAllInstancesCompletePoll).toHaveBeenCalled()
+        expect(mockWorkerSignalOps.pollOnSignal).toHaveBeenCalled()
         expect(
           mockHeartbeatOps.areAllInstancesHealthyPoll
         ).not.toHaveBeenCalled()
-        expect(core.error).toHaveBeenCalledWith(
-          expect.stringContaining('bootstrap')
-        )
+        expect(core.error).toHaveBeenCalledWith(expect.stringContaining('ws'))
       })
 
-      // Add test to show heartbeat failure but bootstrap still called
-      it('calls bootstrap even if heartbeat check will fail', async () => {
+      // Add test to show heartbeat failure but ws still called
+      it('calls ws even if heartbeat check will fail', async () => {
         mockHeartbeatOps.areAllInstancesHealthyPoll.mockResolvedValue({
           state: false,
           message: 'heartbeat timeout'
@@ -177,7 +172,7 @@ describe('FleetValidation', () => {
         const result = await fleetValidation(mockInput)
 
         expect(result).toBe('failed')
-        expect(mockBootstrapOps.areAllInstancesCompletePoll).toHaveBeenCalled()
+        expect(mockWorkerSignalOps.pollOnSignal).toHaveBeenCalled()
         expect(mockHeartbeatOps.areAllInstancesHealthyPoll).toHaveBeenCalled()
         expect(core.error).toHaveBeenCalledWith(
           expect.stringContaining('healthy')

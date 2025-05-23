@@ -56,8 +56,12 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
       sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
       ddbOps: {
         instanceOperations: ddbService.getInstanceOperations(),
-        heartbeatOperations: ddbService.getHeartbeatOperations()
+        heartbeatOperations: ddbService.getHeartbeatOperations(),
+        workerSignalOperations: ddbService.getWorkerSignalOperations()
       }, // ddb for: locking, etc.
+      ec2Ops: {
+        instanceOperations: ec2Service.getInstanceOperations()
+      },
       runId
     })
   }
@@ -96,8 +100,8 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     resourceClassConfig: composedInputs.resourceClassConfig,
     ec2Ops: ec2Service.getInstanceOperations(),
     ddbOps: {
-      instanceOperations: ddbService.getInstanceOperations(),
-      leaderSignalOperations: ddbService.getLeaderSignalOperations()
+      instanceOperations: ddbService.getInstanceOperations()
+      // leaderSignalOperations: ddbService.getLeaderSignalOperations()
     },
     sqsOps: sqsService.getResourceClassConfigOperations()
   })

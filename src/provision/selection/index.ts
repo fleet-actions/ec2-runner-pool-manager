@@ -17,6 +17,7 @@ export async function selection(
     resourceClassConfig,
     sqsOps,
     ddbOps,
+    ec2Ops,
     runId
   } = input
 
@@ -38,7 +39,11 @@ export async function selection(
         resourceClass,
         ddbOps: {
           instanceOperations: ddbOps.instanceOperations,
-          heartbeatOperations: ddbOps.heartbeatOperations
+          heartbeatOperations: ddbOps.heartbeatOperations,
+          workerSignalOperations: ddbOps.workerSignalOperations
+        },
+        ec2Ops: {
+          instanceOperations: ec2Ops.instanceOperations
         },
         runId
       })

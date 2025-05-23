@@ -25,7 +25,7 @@ const secondRefresh = process.env.SECOND_REFRESH
 const secondProvision = process.env.SECOND_PROVISION
 const cleanup = process.env.CLEANUP
 
-process.env.DISABLE_SELECTION = 'true'
+// process.env.DISABLE_SELECTION = 'true'
 changeEnvRunId()
 
 const headlines = ["RUNNING: REFRESH -> PROVISION -> RELEASE"]

@@ -118,7 +118,7 @@ while true; do
   if ! ./config.sh \\
     --url https://github.com/$GH_OWNER/$GH_REPO \\
     --name "$INSTANCE_ID" \\
-    --replace true \\
+    --replace \\
     --token "$_gh_reg_token" \\
     --disableupdate \\
     --unattended \\

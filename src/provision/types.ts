@@ -11,7 +11,7 @@ import { InstanceOperations as EC2InstanceOperations } from '../services/ec2/ope
 import { InstanceOperations as DDBInstanceOperations } from '../services/dynamodb/operations/instance-operations.js'
 import { ResourceClassConfigOperations } from '../services/sqs/operations/resource-class-operations.js'
 import {
-  LeaderSignalOperations,
+  // LeaderSignalOperations,
   WorkerSignalOperations
 } from '../services/dynamodb/operations/signal-operations.js'
 
@@ -74,7 +74,9 @@ export interface SelectionInput {
   ddbOps: {
     instanceOperations: DDBInstanceOperations
     heartbeatOperations: HeartbeatOperations
+    workerSignalOperations: WorkerSignalOperations
   }
+  ec2Ops: { instanceOperations: EC2InstanceOperations }
   runId: string
 }
 
@@ -95,7 +97,7 @@ export type PostProvisionInputs = {
   ec2Ops: EC2InstanceOperations // for dumping resources
   ddbOps: {
     instanceOperations: DDBInstanceOperations
-    leaderSignalOperations: LeaderSignalOperations
+    // leaderSignalOperations: LeaderSignalOperations
   } // instance-operations
   sqsOps: ResourceClassConfigOperations // resource class config (requeueing selected to pool)
 }

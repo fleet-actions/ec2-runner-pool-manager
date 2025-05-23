@@ -7,7 +7,7 @@ import { InstanceOperations } from '../../../services/dynamodb/operations/instan
 // successfully registered and claimed.
 export function blockRegistration() {
   const ent = InstanceOperations.ENTITY_TYPE
-  const functionName = 'blockRegistrationSpinner'
+  const functionName = 'blockRegistration'
 
   const script = `
 # Function to wait for runner registration
@@ -59,7 +59,7 @@ ${functionName}() {
 // they differ or when the runId is removed, indicating the runner has been released.
 export function blockInvalidation() {
   const ent = InstanceOperations.ENTITY_TYPE
-  const functionName = 'blockInvalidationSpinner'
+  const functionName = 'blockInvalidation'
 
   const script = `
 # Function to wait for runner invalidation

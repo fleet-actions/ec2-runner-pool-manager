@@ -137,7 +137,7 @@ while true; do
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
-  # PART 6: Wait for leader worker no longer needs to listen
+  # PART 6: Wait for leader to indicate all jobs done (flipped runId)
   blockInvalidation "$_loop_id" "${longS}"
 
   # PART 7: Remove .runner if found and perform general removal  

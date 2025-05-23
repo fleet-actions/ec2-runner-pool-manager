@@ -106,10 +106,10 @@ export async function claimWorker(input: ClaimWorkerInput): ClaimWorkerOutput {
 
     // if reaches end of while condition, return
     core.info(
-      `[CLAIM WORKER ${workerNum}] Instance (${id}) is claimed and healthy`
+      `[CLAIM WORKER ${workerNum}] Instance (${id}) is claimed, healthy and registered`
     )
     return {
-      message: `Instance (${id}) is claimed and healthy`,
+      message: `Instance (${id}) is claimed, healthy and registered`,
       payload: instance
     }
   }

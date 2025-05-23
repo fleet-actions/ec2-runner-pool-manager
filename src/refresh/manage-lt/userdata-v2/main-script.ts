@@ -111,7 +111,7 @@ while true; do
     
   START_TIME=$(date +%s)
   
-  # Disable auto-updates of runner. Auto-updates causes hangs on kill -TERM runner_pid. 
+  # Disable auto-updates of runner. Auto-updates MAY (not confirmed) causes further time to kill run.sh on kill -TERM runner_pid. 
   # .TODO - consider either: parameterize gh runner version or metadata ddb fetch to avoid deprecations
   if ! ./config.sh \\
     --url https://github.com/$GH_OWNER/$GH_REPO \\

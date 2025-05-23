@@ -7,7 +7,6 @@ export interface FleetValidationInputs {
   fleetResult: FleetResult
   runId: string
   ddbOps: {
-    // bootstrapOperations: BootstrapOperations
     heartbeatOperations: HeartbeatOperations
     workerSignalOperations: WorkerSignalOperations
   }
@@ -33,12 +32,6 @@ export async function fleetValidation(
   const instanceIds = input.fleetResult.instances.map((instance) => instance.id)
 
   try {
-    // currentStatus = await checkBootstrapStatus(
-    //   currentStatus,
-    //   instanceIds,
-    //   bootstrapOperations
-    // )
-
     currentStatus = await checkWSStatus(
       currentStatus,
       runId,
@@ -64,35 +57,6 @@ export async function fleetValidation(
   }
 }
 
-// export async function checkBootstrapStatus(
-//   currentStatus: FleetStates,
-//   instanceIds: string[],
-//   bootstrapOperations: BootstrapOperations
-// ): Promise<FleetStates> {
-//   // 🔍 Guard Clause to exit early if already in failed state
-//   if (currentStatus !== 'success') {
-//     core.warning(
-//       `fleet validation status is not currently success (${currentStatus}), returning failed`
-//     )
-//     return 'failed'
-//   }
-
-//   const bStatus = await bootstrapOperations.areAllInstancesCompletePoll(
-//     instanceIds,
-//     3 * 60, // check for 3 mins, to determine reasonable timeout, define your ami startup time
-//     10 // check every 10s
-//   )
-
-//   if (!bStatus.state) {
-//     core.error(
-//       `fleet validation failed: not all instances have bootstrapped successfully. See message: ${bStatus.message}\n`
-//     )
-//     currentStatus = 'failed'
-//   }
-
-//   return currentStatus
-// }
-
 export async function checkWSStatus(
   currentStatus: FleetStates,
   runId: string,
@@ -107,12 +71,13 @@ export async function checkWSStatus(
     return 'failed'
   }
 
-  const wsstatus = await workerOperations.pollUntilAllInstancesComplete(
+  const wsstatus = await workerOperations.pollOnSignal({
     instanceIds,
     runId,
-    3 * 60, // check for 3 mins, to determine reasonable timeout, dependent on inputted userdata + ami OS loading
-    10 // check every 10s
-  )
+    signal: WorkerSignalOperations.OK_STATUS.UD_REG,
+    timeoutSeconds: 3 * 60, // timeout after
+    intervalSeconds: 10 // check every
+  })
 
   if (!wsstatus.state) {
     core.error(

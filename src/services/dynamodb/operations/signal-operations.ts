@@ -36,19 +36,29 @@ interface SignalReport {
   >
 }
 
-export type Signals = 'success' | 'failed' | 'retry'
+export interface PollOnSignalInputs {
+  instanceIds: string[]
+  runId: string
+  signal: string
+  timeoutSeconds: number
+  intervalSeconds: number
+}
+
+export type Status = 'success' | 'failed' | 'retry'
 
 // Will appear as { "PK": "TYPE#WS", "SK": "i-123", value: { state: "...", runId: "..." } }
 export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalValue> {
   static readonly ENTITY_TYPE = 'WS'
   static readonly OK_STATUS = {
     UD: 'UD_OK',
-    UD_REG: 'UD_REG_OK'
+    UD_REG: 'UD_REG_OK',
+    UD_INVALID_REG: 'UD_INVALID_REG_OK' // invalidation signal
   }
 
   static readonly FAILED_STATUS = {
     UD: 'UD_FAILED',
-    UD_REG: 'UD_REG_FAILED'
+    UD_REG: 'UD_REG_FAILED',
+    UD_INVALID_REG: 'UD_INVALID_REG_FAILED' // invalidation signal failure
   }
 
   constructor(client: DynamoDBClient) {
@@ -56,29 +66,29 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
   }
 
   // Convenience method to see if either UD or UD_REG (not restricted to UD only)
-  async allCompletedUserDataAndRegistration(
+  async allCompletedOnSignal(
     ids: string[],
-    runId: string
-  ): Promise<Signals> {
-    core.debug(`Received: ids ${ids}; runId: ${runId}`)
+    runId: string,
+    signal: string
+  ): Promise<Status> {
+    core.debug(`Received: ids ${ids}; runId: ${runId}, signal: ${signal}`)
+    // first, validate the demanded signal
+    const allStatuses = [
+      ...Object.values(WorkerSignalOperations.OK_STATUS),
+      ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+    ]
+    if (!allStatuses.includes(signal)) {
+      core.warning(
+        `Signal ${signal} is not a valid signal to look for. See valid signas ${allStatuses}. Throwing error...`
+      )
+      throw new Error(`Signal ${signal} is not a valid signal...`)
+    }
+
     const values = await this.getValues(ids)
     core.debug(`Received ws values: ${JSON.stringify(values, null, 2)}`)
     const report = this.buildSignalReport(ids, values, runId)
     core.debug(`Received ws signal report: ${JSON.stringify(report, null, 2)}`)
 
-    // FAILURE MODES:
-    // - ANY UD Failures
-    // - If still OK; any matching id failures
-
-    // Special Failure case:
-    // Given ANY instance, if UD Failed is found - mark for failure
-    // const f = WorkerSignalOperations.FAILED_STATUS.UD
-    // const anyUDFailed = [...report.matchingIds[f], ...report.nonMatchingIds[f]]
-    // if (anyUDFailed.length > 0) {
-    //   return 'failed'
-    // }
-
-    // Rest of the failure cases:
     // Given runId, if any failed staus is found - mark for failure
     const hasAnyFailures = Object.values(
       WorkerSignalOperations.FAILED_STATUS
@@ -118,19 +128,19 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
    * @param intervalSeconds Interval between polls in seconds
    * @returns Result object with state and message
    */
-  async pollUntilAllInstancesComplete(
-    instanceIds: string[],
-    runId: string,
-    timeoutSeconds: number = 120,
-    intervalSeconds: number = 10
+  async pollOnSignal(
+    inputs: PollOnSignalInputs
   ): Promise<{ state: boolean; message: string }> {
     try {
       // Callback to check completion status
+      const { instanceIds, runId, signal, timeoutSeconds, intervalSeconds } =
+        inputs
       const checkFn = async (): Promise<WaiterResult> => {
         try {
-          const result = await this.allCompletedUserDataAndRegistration(
+          const result = await this.allCompletedOnSignal(
             instanceIds,
-            runId
+            runId,
+            signal
           )
 
           if (result === 'success') {

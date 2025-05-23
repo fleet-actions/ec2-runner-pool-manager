@@ -50,18 +50,6 @@ export async function processCreatedInstances(
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // ACCEPT & RUNNING REGISTER --- usage of .all here to throw
-
-  // ACCEPT
-  // await Promise.all(
-  //   creationOutput.instances.map(async (instance) => {
-  //     return leaderSignalOperations.sendSignal({
-  //       runId,
-  //       instanceId: instance.id
-  //     })
-  //   })
-  // )
-
   // RUNNING REGISTER
   await Promise.all(
     creationOutput.instances.map(async (instance) => {
@@ -98,18 +86,7 @@ export async function processSelectedInstances(
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // ACCEPT & CLAIM->RUNNING --- usage of .all here to throw
-
-  // ACCEPT
-  // await Promise.all(
-  //   selectionOutput.instances.map(async (instance) => {
-  //     return leaderSignalOperations.sendSignal({
-  //       runId,
-  //       instanceId: instance.id
-  //     })
-  //   })
-  // )
-
+  // CLAIM->RUNNING --- usage of .all here to throw
   // CLAIM->RUNNING
   await Promise.all(
     selectionOutput.instances.map(async (instance) => {

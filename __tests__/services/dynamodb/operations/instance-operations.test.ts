@@ -106,7 +106,7 @@ describe('InstanceOperations', () => {
     })
   })
 
-  describe('instanceRegistration', () => {
+  describe('instanceRunningRegistration', () => {
     const id = 'i-123'
     const runId = 'run-123'
     const attributes = {
@@ -118,7 +118,7 @@ describe('InstanceOperations', () => {
 
     beforeEach(async () => {
       // put one item (must be new)
-      await instances.instanceRegistration({ id, ...attributes })
+      await instances.instanceRunningRegistration({ id, ...attributes })
     })
 
     it('should register a new instance as running', async () => {
@@ -131,7 +131,7 @@ describe('InstanceOperations', () => {
 
     it('should be able to register multiple instances with separate calls', async () => {
       const id2 = 'i-456'
-      const result = await instances.instanceRegistration({
+      const result = await instances.instanceRunningRegistration({
         id: id2,
         ...attributes
       })
@@ -153,20 +153,20 @@ describe('InstanceOperations', () => {
       const secondRunId = 'run-second'
 
       // Register two instances with first run ID
-      await instances.instanceRegistration({
+      await instances.instanceRunningRegistration({
         id: 'i-111',
         ...attributes,
         runId: firstRunId
       })
 
-      await instances.instanceRegistration({
+      await instances.instanceRunningRegistration({
         id: 'i-222',
         ...attributes,
         runId: firstRunId
       })
 
       // Register one instance with second run ID
-      await instances.instanceRegistration({
+      await instances.instanceRunningRegistration({
         id: 'i-333',
         ...attributes,
         runId: secondRunId
@@ -192,20 +192,16 @@ describe('InstanceOperations', () => {
     // - test failures
     beforeEach(async () => {
       // Register test instances
-      await instances.instanceRegistration({
+      await instances.instanceRunningRegistration({
         id: 'i-active',
         runId: 'run-123',
-        threshold: futureDate,
-        resourceClass: 'standard',
-        instanceType: 't3.micro'
+        threshold: futureDate
       })
 
-      await instances.instanceRegistration({
+      await instances.instanceRunningRegistration({
         id: 'i-expired',
         runId: 'run-456',
-        threshold: pastDate,
-        resourceClass: 'standard',
-        instanceType: 't3.micro'
+        threshold: pastDate
       })
     })
 
@@ -411,70 +407,6 @@ describe('InstanceOperations', () => {
         // Verify warning message includes the runId mismatch emoji
         expect(core.warning).toHaveBeenCalledWith(expect.stringMatching(/🏃/))
       })
-    })
-  })
-
-  describe('instanceTermination', () => {
-    beforeEach(async () => {
-      // Register test instances - one expired, one active
-      await instances.instanceRegistration({
-        id: 'i-expired',
-        runId: 'run-123',
-        threshold: pastDate,
-        resourceClass: 'standard',
-        instanceType: 't3.micro'
-      })
-
-      await instances.instanceRegistration({
-        id: 'i-active',
-        runId: 'run-456',
-        threshold: futureDate,
-        resourceClass: 'standard',
-        instanceType: 't3.micro'
-      })
-    })
-
-    it('should terminate expired instances only', async () => {
-      // The instanceTermination method uses conditionSelectsUnexpired=false internally
-      await instances.instanceTermination({
-        id: 'i-expired',
-        expectedState: 'running',
-        expectedRunID: 'run-123'
-      })
-
-      // Verify instance is no longer findable by its old runId
-      const instances1 = await instances.getInstancesByRunId('run-123')
-      expect(instances1.length).toBe(0)
-      // Verify that we can find this instance in blank runId
-      const instancesNoRunId = await instances.getInstancesByRunId('')
-      expect(instancesNoRunId.length).toBe(1)
-      expect(instancesNoRunId[0].identifier).toBe('i-expired')
-    })
-
-    it('should terminate NOT expired instances - throws an error', async () => {
-      // The instanceTermination method uses conditionSelectsUnexpired=false internally
-      await expect(
-        instances.instanceTermination({
-          id: 'i-active',
-          expectedState: 'running',
-          expectedRunID: 'run-456'
-        })
-      ).rejects.toThrow()
-
-      // Verify instance is still findleable as running
-      const instances1 = await instances.getInstancesByRunId('run-456')
-      expect(instances1.length).toBe(1)
-      expect(instances1[0].identifier).toBe('i-active')
-    })
-
-    it("should fail termination when state doesn't match", async () => {
-      await expect(
-        instances.instanceTermination({
-          id: 'i-expired',
-          expectedState: 'idle', // Incorrect state
-          expectedRunID: 'run-456'
-        })
-      ).rejects.toThrow()
     })
   })
 

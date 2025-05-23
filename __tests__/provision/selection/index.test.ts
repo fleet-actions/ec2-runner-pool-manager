@@ -4,9 +4,11 @@ import { claimWorker } from '../../../__fixtures__/provision/selection'
 import { mock, MockProxy } from 'jest-mock-extended'
 import type { Instance, SelectionInput } from '../../../src/provision/types'
 import type { ResourceClassConfig } from '../../../src/services/types'
-import type { InstanceOperations } from '../../../src/services/dynamodb/operations/instance-operations'
+import type { InstanceOperations as DDBInstanceOperations } from '../../../src/services/dynamodb/operations/instance-operations'
+import type { InstanceOperations as EC2InstanceOperations } from '../../../src/services/ec2/operations/instance-operations'
 import type { HeartbeatOperations } from '../../../src/services/dynamodb/operations/heartbeat-operations'
 import type { ResourceClassConfigOperations } from '../../../src/services/sqs/operations/resource-class-operations'
+import { WorkerSignalOperations } from '../../../src/services/dynamodb/operations/signal-operations'
 
 // Mock dependencies
 Object.entries({
@@ -22,10 +24,12 @@ const { selection } = await import('../../../src/provision/selection/index')
 
 describe('selection', () => {
   let mockInput: SelectionInput
-  let mockDdbInstanceOps: MockProxy<InstanceOperations>
+  let mockDdbInstanceOps: MockProxy<DDBInstanceOperations>
   let mockDdbHeartbeatOps: MockProxy<HeartbeatOperations>
   let mockSqsOps: MockProxy<ResourceClassConfigOperations>
   let mockResourceClassConfig: MockProxy<ResourceClassConfig>
+  let mockWorkerSignalOperations: MockProxy<WorkerSignalOperations>
+  let mockEc2InstanceOperations: MockProxy<EC2InstanceOperations>
 
   const genericInstance: Instance = {
     id: 'i-1234567890abcdef0',
@@ -38,8 +42,10 @@ describe('selection', () => {
   beforeEach(() => {
     jest.clearAllMocks() // Clears all mocks including core and the fixture claimWorker
 
-    mockDdbInstanceOps = mock<InstanceOperations>()
+    mockDdbInstanceOps = mock<DDBInstanceOperations>()
     mockDdbHeartbeatOps = mock<HeartbeatOperations>()
+    mockWorkerSignalOperations = mock<WorkerSignalOperations>()
+    mockEc2InstanceOperations = mock<EC2InstanceOperations>()
     mockSqsOps = mock<ResourceClassConfigOperations>()
     mockResourceClassConfig = mock<ResourceClassConfig>()
 
@@ -50,8 +56,10 @@ describe('selection', () => {
       sqsOps: mockSqsOps,
       ddbOps: {
         instanceOperations: mockDdbInstanceOps,
-        heartbeatOperations: mockDdbHeartbeatOps
+        heartbeatOperations: mockDdbHeartbeatOps,
+        workerSignalOperations: mockWorkerSignalOperations
       },
+      ec2Ops: { instanceOperations: mockEc2InstanceOperations },
       runId: 'test-run-id-selection',
       instanceCount: 2
     }

@@ -33,8 +33,8 @@ export function addBuiltInScript(
   input: LTDatav2
 ): LTDatav2 {
   const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
-  const longS = 1
-  // const shortS = 0.1
+  const longS = 2
+  const shortS = 0.5
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
@@ -104,7 +104,7 @@ while true; do
 
   # PART 0: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  blockRegistration "$_tmpfile" "${longS}"
+  blockRegistration "$_tmpfile" "${shortS}"
   _loop_id=$(cat "$_tmpfile")
   rm -f "$_tmpfile"
 

@@ -71,14 +71,17 @@ export async function performTerminationTransitions(
   unsuccessfulItems: InstanceItem[]
 }> {
   const response = await Promise.allSettled(
-    instanceItems.map((item) =>
-      ddbOps.instanceTermination({
+    instanceItems.map((item) => {
+      return ddbOps.instanceStateTransition({
         id: item.identifier,
-        // 🔍 These are to guard against concurrent operations
         expectedState: item.state,
-        expectedRunID: item.runId
+        expectedRunID: item.runId,
+        newState: 'terminated',
+        newRunID: '',
+        newThreshold: null,
+        conditionSelectsUnexpired: false
       })
-    )
+    })
   )
 
   const successfulItems: InstanceItem[] = []

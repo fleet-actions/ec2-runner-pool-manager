@@ -60,14 +60,14 @@ export async function claimWorker(input: ClaimWorkerInput): ClaimWorkerOutput {
     const instanceHealth =
       await ddbOps.heartbeatOperations.isInstanceHealthy(id)
     if (instanceHealth.state !== HeartbeatOperations.HEALTHY) {
-      core.info(
-        `[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Retrying...`
-      )
       await handleUnhealthyClaimedInstances({
         id,
         runId,
         ddbOps: ddbOps.instanceOperations
       })
+      core.info(
+        `[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Marked expired. Now retrying...`
+      )
       continue
     }
 
@@ -129,19 +129,12 @@ export async function handleUnhealthyClaimedInstances(
 ) {
   const { id, runId, ddbOps } = inputs
   try {
-    const now = Date.now()
-    const past = new Date(now + -1 * 60 * 1000).toISOString()
-
     core.info(`Marking unhealthy claimed instance for termination: (${id})`)
 
-    await ddbOps.instanceStateTransition({
+    await ddbOps.expireInstance({
       id,
-      expectedRunID: runId,
-      newRunID: '', // important so that release does not pick this up (no longer registered against this run)
-      expectedState: 'claimed',
-      newState: 'claimed', // no state change
-      newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
-      conditionSelectsUnexpired: true
+      runId,
+      state: 'claimed'
     })
 
     core.info(

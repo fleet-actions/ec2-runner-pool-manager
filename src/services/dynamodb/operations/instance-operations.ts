@@ -44,7 +44,7 @@ export interface InstanceTransitionInput {
   newRunID: string
   expectedState: InstanceStates
   newState: InstanceStates
-  newThreshold: string // ISOZ
+  newThreshold: string | null // ISOZ
   conditionSelectsUnexpired: boolean
   // isolationCheck: boolean // 🔍 No longer needed as exp/newRID will always be provided
 }
@@ -63,6 +63,48 @@ export class InstanceOperations extends BasicOperations {
   // USED PUBLIC INTERFACES (To be Tested)
   //
   //
+
+  /**
+   * Expires an instance by updating its threshold to 1min past current time.
+   * Effect: system mechanisms with send termination signal to instance
+   *
+   * @param {object} params - The instance parameters
+   * @param {string} params.id - Instance identifier
+   * @param {string} params.runId - Run ID that must match current record
+   * @param {InstanceStates | null} params.state - Current state of the instance (if null, will expire from any state)
+   *
+   * @returns {Promise<void>} Resolves when expiration completes successfully
+   * @throws {Error} Throws error when state transition fails
+   */
+  async expireInstance({
+    id,
+    runId,
+    state
+  }: {
+    id: string
+    runId: string
+    state: InstanceStates | null
+  }) {
+    const now = Date.now()
+    const past = new Date(now + -1 * 60 * 1000).toISOString() // 1 min in past
+
+    if (!state) {
+      core.info(
+        'Performing general instance expiration as incoming state is undefined'
+      )
+      state = ((await this.getGenericItem(id, true)) as InstanceItem).state
+    }
+
+    await this.instanceStateTransition({
+      id,
+      expectedRunID: runId,
+      newRunID: runId,
+      expectedState: state,
+      newState: state,
+      newThreshold: this.getISOZDate(past),
+      conditionSelectsUnexpired: true
+    })
+  }
 
   // 🔍 REFRESH (managing terminations)
   async getExpiredInstancesByStates(
@@ -114,29 +156,6 @@ export class InstanceOperations extends BasicOperations {
       )
       throw err
     }
-  }
-
-  // 🔍 REFRESH (managing terminations)
-  async instanceTermination({
-    id,
-    expectedState,
-    expectedRunID
-  }: {
-    id: string
-    expectedState: InstanceStates
-    expectedRunID: string
-  }) {
-    const now = this.getISOZDate()
-
-    return await this.instanceStateTransition({
-      id,
-      expectedState,
-      expectedRunID,
-      newRunID: '',
-      newState: 'terminated',
-      newThreshold: now,
-      conditionSelectsUnexpired: false
-    })
   }
 
   // 🔍 PROVISION (DUMPING)
@@ -245,6 +264,22 @@ export class InstanceOperations extends BasicOperations {
 
   // 🔍 CORE INTERFACE FACILITATING TRANSITION
   // .Potentially used in all modes; throws errors on any failures
+  /**
+   * Transitions an instance from one state to another with run ID verification
+   *
+   * @param {object} params - The transition parameters
+   * @param {string} params.id - Instance identifier
+   * @param {string} params.expectedRunID - Run ID that must match current record
+   * @param {string} params.newRunID - New run ID to assign to the instance
+   * @param {InstanceStates} params.expectedState - Expected current state of instance
+   * @param {InstanceStates} params.newState - New state to transition to
+   * @param {string|null} params.newThreshold - New threshold value (ISO date string or if null, is current time in ISOZ)
+   * @param {boolean} params.conditionSelectsUnexpired - When true, transition only succeeds if threshold > now (unexpired)
+   *                                                   When false, transition only succeeds if threshold < now (expired)
+   *
+   * @throws {Error} Throws error when transition fails, including detailed conditional check failures
+   * @returns {Promise<void>} Resolves when transition completes successfully
+   */
   async instanceStateTransition({
     id,
     expectedRunID,

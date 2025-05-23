@@ -1,6 +1,5 @@
 import * as core from '@actions/core'
 import { transitionToIdle } from './transition-to-idle.js'
-import { sendToPools } from './send-to-pools.js'
 import {
   InstanceOperations,
   InstanceStates,
@@ -8,6 +7,8 @@ import {
 } from '../services/dynamodb/operations/instance-operations.js'
 import type { ResourceClassConfigOperations as SQSRcc } from '../services/sqs/operations/resource-class-operations.js'
 import { ResourceClassConfig } from '../services/types.js'
+import { releaseWorker } from './release-workers.js'
+import { WorkerSignalOperations } from '../services/dynamodb/operations/signal-operations.js'
 
 // 🔍 Release routine.
 // 1. Get all instance ids of run id
@@ -20,7 +21,10 @@ export interface ReleaseResourcesInput {
   resourceClassConfig: ResourceClassConfig
   runId: string
   idleTimeSec: number
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+    workerSignalOperations: WorkerSignalOperations
+  }
   sqsOps: SQSRcc
 }
 
@@ -31,7 +35,7 @@ export async function releaseResources(input: ReleaseResourcesInput) {
   const errorMessages: string[] = []
 
   // Get and classify instances
-  const instances = await ddbOps.getInstancesByRunId(runId)
+  const instances = await ddbOps.instanceOperations.getInstancesByRunId(runId)
   const classified = classifyInstancesByState(instances)
   core.info(
     `See classified instances:\n${Object.entries(classified)
@@ -42,7 +46,7 @@ export async function releaseResources(input: ReleaseResourcesInput) {
   )
 
   // GATHER FOR REPORTING
-  const invalidStates: InstanceStates[] = ['created', 'claimed', 'idle']
+  const invalidStates: InstanceStates[] = ['idle']
   for (const state of invalidStates) {
     if (classified[state].length > 0) {
       const ids = classified[state].map((i) => i.identifier)
@@ -52,12 +56,12 @@ export async function releaseResources(input: ReleaseResourcesInput) {
     }
   }
 
-  // Process running instances
+  // Process ONLY 'running' instances
   const { successful, unsuccessful } = await transitionToIdle(
     classified.running,
     runId,
     idleTimeSec,
-    ddbOps
+    ddbOps.instanceOperations
   )
 
   // Handle unsuccessful transitions
@@ -72,16 +76,25 @@ export async function releaseResources(input: ReleaseResourcesInput) {
   // Continue with releasing successful instances even if there were errors
   if (successful.length > 0) {
     core.info(
-      `Releasing ${successful.length} successfully transitioned instances to pool`
+      `Releasing ${successful.length} successfully transitioned instances. Now performing safe release...`
     )
-    await sendToPools(successful, resourceClassConfig, sqsOps)
+    await Promise.allSettled(
+      successful.map((instance, ind) => {
+        return releaseWorker({
+          instanceItem: instance,
+          resourceClassConfig,
+          runId,
+          ddbOps,
+          sqsOps,
+          workerNum: ind
+        })
+      })
+    )
   }
 
   // Instead of setting failures on presence of failures, I think OK with just setting release to always 'succeed'
   if (errorMessages.length > 0) {
-    core.warning(
-      `Release completed with errors 😬:\n${errorMessages.join('\n')}`
-    )
+    core.error(`Release completed with errors 😬:\n${errorMessages.join('\n')}`)
   } else {
     core.info('Release completed successfully 🎉')
   }
@@ -118,13 +131,17 @@ function logInstanceState(instance: InstanceItem): void {
     )
   } else if (state === 'terminated') {
     core.info(`✅ Found as 'terminated' - this is OK, no further actions `)
-  } else if (state === 'idle') {
+  } else if (state === 'created') {
     core.info(
-      `❌ Found as 'idle' - idle instances should not be found with a runId. Release will be marked for failure`
+      `✅ Found as 'created' - This could indicate failed 'created' instances on provision-creation. That is OK - no further actions.`
     )
   } else if (state === 'claimed') {
     core.warning(
-      `❌ Found as 'claimed' - release will be marked for failure after other resources are released`
+      `✅ Found as 'claimed' - This could indicate failed 'claimed' instances on provision-selection. That is OK - no further actions.`
+    )
+  } else if (state === 'idle') {
+    core.info(
+      `❌ Found as 'idle' - idle instances should not be found with a runId. Release will be marked for warning`
     )
   }
 }

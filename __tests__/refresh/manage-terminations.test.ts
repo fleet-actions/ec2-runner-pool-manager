@@ -9,7 +9,8 @@ import {
   InstanceItem
 } from '../../src/services/dynamodb/operations/instance-operations'
 import { InstanceOperations as EC2InstanceOperations } from '../../src/services/ec2/operations/instance-operations'
-import { BootstrapOperations } from '../../src/services/dynamodb/operations/bootstrap-operations'
+// import { BootstrapOperations } from '../../src/services/dynamodb/operations/bootstrap-operations'
+import { WorkerSignalOperations } from '../../src/services/dynamodb/operations/signal-operations'
 import { HeartbeatOperations } from '../../src/services/dynamodb/operations/heartbeat-operations'
 
 // Import the function to test and its input type
@@ -29,7 +30,7 @@ const { manageTerminations } = await import(
 describe('manageTerminations', () => {
   let mockDDBInstanceOperations: MockProxy<DDBInstanceOperations>
   let mockDDBHeartbeatOperations: MockProxy<HeartbeatOperations>
-  let mockDDBBootstrapOperations: MockProxy<BootstrapOperations>
+  let mockWorkerSignalOperations: MockProxy<WorkerSignalOperations>
   let mockEC2Ops: MockProxy<EC2InstanceOperations>
   let manageTerminationsInput: ManageTerminationsInputs
 
@@ -59,22 +60,22 @@ describe('manageTerminations', () => {
 
     mockDDBInstanceOperations = mock<DDBInstanceOperations>()
     mockDDBHeartbeatOperations = mock<HeartbeatOperations>()
-    mockDDBBootstrapOperations = mock<BootstrapOperations>()
+    mockWorkerSignalOperations = mock<WorkerSignalOperations>()
     mockEC2Ops = mock<EC2InstanceOperations>()
 
     manageTerminationsInput = {
       ddbOps: {
         instanceOperations: mockDDBInstanceOperations,
         heartbeatOperations: mockDDBHeartbeatOperations,
-        bootstrapOperations: mockDDBBootstrapOperations
+        workerSignalOperations: mockWorkerSignalOperations
       },
       ec2Ops: mockEC2Ops
     }
 
     // Default successful mocks
     mockEC2Ops.terminateInstances.mockResolvedValue(undefined as any)
-    mockDDBBootstrapOperations.deleteItem.mockResolvedValue(undefined)
-    mockDDBBootstrapOperations.deleteItem.mockResolvedValue(undefined)
+    mockWorkerSignalOperations.deleteItem.mockResolvedValue(undefined)
+    mockWorkerSignalOperations.deleteItem.mockResolvedValue(undefined)
   })
 
   it('should log "No instances marked for termination" and not call EC2 terminate if no expired instances are found', async () => {
@@ -101,7 +102,9 @@ describe('manageTerminations', () => {
       'No instances marekd for termination' // Note: "marekd" is a typo in the original code
     )
     expect(core.info).toHaveBeenCalledWith('Completed instance terminations...')
-    expect(mockDDBInstanceOperations.instanceTermination).not.toHaveBeenCalled()
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).not.toHaveBeenCalled()
     expect(mockEC2Ops.terminateInstances).not.toHaveBeenCalled()
   })
 
@@ -114,8 +117,8 @@ describe('manageTerminations', () => {
       expiredInstances
     )
 
-    // Mock DDB instanceTermination for instance1
-    mockDDBInstanceOperations.instanceTermination
+    // Mock DDB instanceStateTransition for instance1
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(
         expect.objectContaining({
           id: instance1.identifier,
@@ -125,8 +128,8 @@ describe('manageTerminations', () => {
       )
       .mockResolvedValue({ Attributes: {} } as any)
 
-    // Mock DDB instanceTermination for instance2
-    mockDDBInstanceOperations.instanceTermination
+    // Mock DDB instanceStateTransition for instance2
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(
         expect.objectContaining({
           id: instance2.identifier,
@@ -144,17 +147,21 @@ describe('manageTerminations', () => {
     expect(
       mockDDBInstanceOperations.getExpiredInstancesByStates
     ).toHaveBeenCalledWith(['idle', 'claimed', 'running'])
-    expect(mockDDBInstanceOperations.instanceTermination).toHaveBeenCalledTimes(
-      2
-    )
-    expect(mockDDBInstanceOperations.instanceTermination).toHaveBeenCalledWith(
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).toHaveBeenCalledTimes(2)
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         id: instance1.identifier,
         expectedState: instance1.state,
         expectedRunID: instance1.runId
       })
     )
-    expect(mockDDBInstanceOperations.instanceTermination).toHaveBeenCalledWith(
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         id: instance2.identifier,
         expectedState: instance2.state,
@@ -197,7 +204,7 @@ describe('manageTerminations', () => {
     )
 
     // Simulate instanceSuccess succeeding
-    mockDDBInstanceOperations.instanceTermination
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(
         expect.objectContaining({
           id: instanceSuccess.identifier,
@@ -208,7 +215,7 @@ describe('manageTerminations', () => {
       .mockResolvedValue({ Attributes: {} } as any)
 
     // Simulate instanceFail failing
-    mockDDBInstanceOperations.instanceTermination
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(
         expect.objectContaining({
           id: instanceFail.identifier,
@@ -220,9 +227,9 @@ describe('manageTerminations', () => {
 
     await manageTerminations(manageTerminationsInput)
 
-    expect(mockDDBInstanceOperations.instanceTermination).toHaveBeenCalledTimes(
-      2
-    )
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).toHaveBeenCalledTimes(2)
     expect(core.info).toHaveBeenCalledWith(
       '--- Instance Termination Diagnostics ---'
     )
@@ -264,16 +271,16 @@ describe('manageTerminations', () => {
     mockDDBInstanceOperations.getExpiredInstancesByStates.mockResolvedValue(
       expiredInstances
     )
-    // All instanceTermination calls will fail due to this general mock
-    mockDDBInstanceOperations.instanceTermination.mockRejectedValue(
+    // All instanceStateTransition calls will fail due to this general mock
+    mockDDBInstanceOperations.instanceStateTransition.mockRejectedValue(
       new Error('DDB conditional check failed')
     )
 
     await manageTerminations(manageTerminationsInput)
 
-    expect(mockDDBInstanceOperations.instanceTermination).toHaveBeenCalledTimes(
-      expiredInstances.length
-    )
+    expect(
+      mockDDBInstanceOperations.instanceStateTransition
+    ).toHaveBeenCalledTimes(expiredInstances.length)
     expect(core.info).toHaveBeenCalledWith(
       '--- Instance Termination Diagnostics ---'
     )
@@ -330,15 +337,15 @@ describe('manageTerminations', () => {
       expiredInstances
     )
 
-    mockDDBInstanceOperations.instanceTermination
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(expect.objectContaining({ id: idleInstance.identifier }))
       .mockResolvedValue({ Attributes: {} } as any)
-    mockDDBInstanceOperations.instanceTermination
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(
         expect.objectContaining({ id: claimedInstanceEmptyRunId.identifier })
       )
       .mockRejectedValue(new Error('DDB error'))
-    mockDDBInstanceOperations.instanceTermination
+    mockDDBInstanceOperations.instanceStateTransition
       .calledWith(expect.objectContaining({ id: runningInstance.identifier }))
       .mockResolvedValue({ Attributes: {} } as any)
 

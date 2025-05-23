@@ -28,7 +28,7 @@ export const BASE_DEFAULTS = {
 
 export const REFRESH_DEFAULTS = {
   'github-reg-token-refresh-min': 30,
-  'idle-time-sec': 300,
+  'idle-time-sec': 7 * 60, // 7 min idle time to acc for gh deregistration time T_T
   'max-runtime-min': 30,
   'pre-runner-script': DEFAULT_SCRIPT,
   'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT

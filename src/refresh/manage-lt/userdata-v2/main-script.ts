@@ -156,8 +156,15 @@ while true; do
   # CONSIDER: emission of signal on unsuccessful removal (ie. so we can mark for termination)
   _gh_reg_token=$(fetchGHToken)
   echo "Removing config..."
-  ./config.sh remove --token "$_gh_reg_token"
+  if ! ./config.sh remove --token "$_gh_reg_token"; then
+    echo "Failed to ./config.sh remove, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
+    exit 1
+  fi
 
+  echo "Successful ./config remove, now killing run.sh..."
+
+  # Criteria for killing run_pid failure is harder to define (consider bash timeout)
   echo "Removing run.sh and helpers..."
   if kill -0 $_runner_pid; then
     echo "run.sh pid still going $_runner_pid, sending kill signal..."
@@ -165,12 +172,13 @@ while true; do
 
     # if this still hangs for too long, see comment above. 
     # ... consider manual kill of run.sh, run-helper.sh, Runner.Listener run
-    wait $_runner_pid  
+    wait $_runner_pid
   else
-    echo "run.sh pid $_runner_pid no longer running, unable to send kill signal..." 
-  fi 
+    echo "run.sh pid $_runner_pid no longer running, will not be sending kill signal..." 
+  fi
 
-
+  echo "Successfully to removed run.sh and child processes, sending signal (ok if late)..."
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}" 
   echo "Worker now should not be able to pickup jobs..."
 done
 `

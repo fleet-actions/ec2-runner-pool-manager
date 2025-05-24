@@ -8,7 +8,11 @@ import { emitSignal } from './emit-signal.js'
 import { fetchGHToken } from './fetch-token.js'
 import { userScript, downloadRunnerArtifactScript } from './minor-scripts.js'
 import { blockRegistration, blockInvalidation } from './blockers.js'
-import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
+import {
+  heartbeatScript,
+  keepRunnerAliveScript,
+  selfTerminationScript
+} from './background-scripts.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -64,6 +68,7 @@ ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
+${keepRunnerAliveScript('keep-runner-alive.sh')}
 
 ### SOME INITIALIZATION ###
 if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
@@ -92,6 +97,7 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 ### REGISTRATION LOOP ###
 export RUNNER_ALLOW_RUNASROOT=1 
 export RUNNER_MANUALLY_TRAP_SIG=1
+./keep-runner-alive.sh &
 
 _counter=0
 
@@ -166,14 +172,14 @@ while true; do
     exit 1
   fi
 
-  echo "Performing hacked run.sh shutdown"
-  if kill -0 $_runner_pid; then
-    echo "Runner ($_runner_pid) still alive, sending kill signal to listener & runner..."
-    sudo kill "$_runner_listener_pid" "$_runner_pid"  
-    wait $_runner_pid
-  else
-    echo "The runner process has already been removed ($_runner_pid)"
-  fi   
+  # echo "Performing hacked run.sh shutdown"
+  # if kill -0 $_runner_pid; then
+  #  echo "Runner ($_runner_pid) still alive, sending kill signal to listener & runner..."
+  #   sudo kill "$_runner_listener_pid" "$_runner_pid"  
+  #   wait $_runner_pid
+  # else
+  #   echo "The runner process has already been removed ($_runner_pid)"
+  # fi   
 
   # echo "Performing config.sh remove..."
   # _gh_reg_token=$(fetchGHToken)
@@ -196,8 +202,7 @@ while true; do
   #   echo "The runner process has already been removed ($_runner_pid)"
   # fi 
 
-  # EMIT OK SIGNAL HERE
-  echo "Runner removed, emitting signal..."
+  echo "Completed removal, emitting signal..."
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
 
   echo "Runner can safely re-register..."

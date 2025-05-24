@@ -11,8 +11,11 @@ import { releaseWorker } from './release-workers.js'
 import { WorkerSignalOperations } from '../services/dynamodb/operations/signal-operations.js'
 
 // 🔍 Release routine.
-// 1. Get all instance ids of run id
+// 1. Get all instance ids under run id
 // 2. Release instances (transition from 'running' to 'idle') + isolation checks
+// 3. For successful transitions - we call the release worker on them
+// 4. For unsuccessful transitions - we DO NOT call the release worker on them (ignored)
+// 5. core.error - only on idle instances do we call core.error
 // 📝 More graceful handling of instances found with runId but are claimed
 // 📝 More graceful handling of instances that were not transitioned correctly (ie. failed on the instance transition)
 // 📝 By this, I mean that sucessful resources should still be released, but that we collect messages and if those messages are not empty, we core.setFailed to make them visible
@@ -37,6 +40,13 @@ export async function releaseResources(input: ReleaseResourcesInput) {
   // Get and classify instances
   const instances = await ddbOps.instanceOperations.getInstancesByRunId(runId)
   const classified = classifyInstancesByState(instances)
+
+  if (instances.length === 0) {
+    core.warning(`No instances were found to release...`)
+    core.debug(`No instances were found with runId: ${runId}`)
+    return
+  }
+
   core.info(
     `See classified instances:\n${Object.entries(classified)
       .map(([k, v]) => {

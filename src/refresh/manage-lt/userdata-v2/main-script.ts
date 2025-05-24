@@ -93,7 +93,7 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 export RUNNER_ALLOW_RUNASROOT=1 
 export RUNNER_MANUALLY_TRAP_SIG=1
 
-$_counter=0
+_counter=0
 
 while true; do
   _counter=$(( _counter + 1 ))
@@ -137,11 +137,11 @@ while true; do
   # PART 2.1: Start up Runner
   ./run.sh &
   _runner_pid=$!
-  while ! ps | grep '[R]unner.Listener' >/dev/null; do
+  while ! pgrep -f '[R]unner.Listener' >/dev/null; do
     sleep 1
   done
   echo "Runner.Listener is now running!"  
-  _runner_listener_pid=$(ps | grep '[R]unner.Listener' | awk '{print $1}')
+  _runner_listener_pid=$(pgrep -f '[R]unner.Listener' | awk '{print $1}')
   echo "Runner PID is $_runner_pid, Runner.Listener PID is $_runner_listener_pid"
 
   # PART 3: Wait for leader to indicate all jobs done (flipped runId)
@@ -169,7 +169,7 @@ while true; do
   echo "Performing hacked run.sh shutdown"
   if kill -0 $_runner_pid; then
     echo "Runner ($_runner_pid) still alive, sending kill signal to listener & runner..."
-    sudo kill $_runner_listener_pid $_runner_pid  
+    sudo kill "$_runner_listener_pid" "$_runner_pid"  
     wait $_runner_pid
   else
     echo "The runner process has already been removed ($_runner_pid)"

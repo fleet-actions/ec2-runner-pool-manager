@@ -9,6 +9,7 @@ import { fetchGHToken } from './fetch-token.js'
 import { userScript, downloadRunnerArtifactScript } from './minor-scripts.js'
 import { blockRegistration, blockInvalidation } from './blockers.js'
 import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
+import { tokenlessDeregistration } from './deregistration.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -58,6 +59,7 @@ ${emitSignal()}
 ${fetchGHToken()}
 ${blockRegistration()}
 ${blockInvalidation()}
+${tokenlessDeregistration()}
 
 echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
@@ -102,7 +104,7 @@ while true; do
   # PART 0: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
   blockRegistration "$_tmpfile" "${shortS}"
-  _loop_id=$(cat "$_tmpfile")
+  LOOP_ID=$(cat "$_tmpfile")
   rm -f "$_tmpfile"
 
   # PART 2: Register to worker GH with valid token & emit
@@ -120,9 +122,9 @@ while true; do
     --disableupdate \\
     --unattended \\
     --no-default-labels \\
-    --labels "$_loop_id"; then
+    --labels "$LOOP_ID"; then
     
-    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
+    emitSignal "$LOOP_ID" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
     >&2 echo "Unable to register worker to gh"
     exit 1
   fi
@@ -131,74 +133,23 @@ while true; do
   DELTA=$((END_TIME - START_TIME))
   echo "config.sh execution time: $DELTA seconds"  
 
-  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
+  emitSignal "$LOOP_ID" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
   # PART 2.1: Start up Runner
   ./run.sh &
-  _runner_pid=$!
-  while ! pgrep -f '[R]unner.Listener' >/dev/null; do
-    sleep 1
-  done
-  echo "Runner.Listener is now running!"  
-  _runner_listener_pid=$(pgrep -f '[R]unner.Listener' | awk '{print $1}')
-  echo "Runner PID is $_runner_pid, Runner.Listener PID is $_runner_listener_pid"
+  LOOP_RUN_PID=$!
 
   # PART 3: Wait for leader to indicate all jobs done (flipped runId)
-  blockInvalidation "$_loop_id" "${longS}"
+  blockInvalidation "$LOOP_ID" "${longS}"
 
-  # PART 4: Remove .runner if found and perform general removal  
-  echo "Performing tokenless removal..."
-  if [ -f .runner ]; then
-    echo "Found .runner removing..."
-    rm .runner
-  else
-    echo "no .runner found. following tokenless ./config.sh remove may fail..."
-  fi
-
-  echo "Calling config.sh remove"
-  if ./config.sh remove; then
-    echo "Successfully removed registration files, emitting signal..."
-    emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
-  else
-    echo "Unsuccessfully removed registration files, emitting signal..."
-    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
-    exit 1
-  fi
-
-  echo "Performing hacked run.sh shutdown"
-  if kill -0 $_runner_pid; then
-    echo "Runner ($_runner_pid) still alive, sending kill signal to listener & runner..."
-    sudo kill "$_runner_listener_pid" "$_runner_pid"  
-    wait $_runner_pid
-  else
-    echo "The runner process has already been removed ($_runner_pid)"
-  fi   
-
-  # echo "Performing config.sh remove..."
-  # _gh_reg_token=$(fetchGHToken)
-  # if ./config.sh remove --token "$_gh_reg_token"; then
-  #   echo "Successfully removed registration files, emitting signal..."
-  #   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
-  # else
-  #   echo "Unsuccessfully removed registration files, emitting signal..."
-  #   emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
-  #   exit 1
-  # fi
-
-  # Part 5: Graceful shutdown run.sh
-  # echo "Shutting down run.sh and child processes..."
-  # if kill -0 $_runner_pid; then
-  #   echo "Runner ($_runner_pid) still alive, sending kill signal and now awaiting..."
-  #   sudo kill -TERM $_runner_pid 
-  #   wait $_runner_pid
-  # else
-  #   echo "The runner process has already been removed ($_runner_pid)"
-  # fi 
+  # PART 4: Deregistration
+  tokenlessDeregistration
+  
 
   # EMIT OK SIGNAL HERE
   echo "Runner removed, emitting signal..."
-  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
+  emitSignal "$LOOP_ID" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
 
   echo "Runner can safely re-register..."
 done

@@ -46,6 +46,71 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     super(WorkerSignalOperations.ENTITY_TYPE, null, client)
   }
 
+  // ... existing code ...
+
+  // Checks if a single instance has completed with the expected signal
+  async singleCompletedOnSignal(
+    id: string,
+    runId: string,
+    signal: string
+  ): Promise<Status> {
+    core.debug(
+      `Checking signal for instance ${id} with runId: ${runId}, signal: ${signal}`
+    )
+
+    // Validate the demanded signal
+    const allStatuses = [
+      ...Object.values(WorkerSignalOperations.OK_STATUS),
+      ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+    ]
+    if (!allStatuses.includes(signal)) {
+      core.warning(
+        `Signal ${signal} is not a valid signal to look for. Valid signals: ${allStatuses.join(', ')}`
+      )
+      throw new Error(`Signal ${signal} is not a valid signal`)
+    }
+
+    // Get the single value
+    const value = await this.getValue(id)
+
+    // Log the state
+    if (!value) {
+      core.info(`Instance ${id}: No signal record found`)
+      return 'retry'
+    }
+
+    core.debug(
+      `Instance ${id} current state: ${value.state}, runId: ${value.runId}`
+    )
+
+    // Check for failure states
+    if (
+      Object.values(WorkerSignalOperations.FAILED_STATUS).includes(
+        value.state
+      ) &&
+      value.runId === runId
+    ) {
+      core.info(
+        `Instance ${id}: Failed with state ${value.state} for runId ${runId}`
+      )
+      return 'failed'
+    }
+
+    // Check for success
+    if (value.state === signal && value.runId === runId) {
+      core.info(
+        `Instance ${id}: Successfully completed with signal ${signal} for runId ${runId}`
+      )
+      return 'success'
+    }
+
+    // Any other case is a retry
+    core.info(
+      `Instance ${id}: Waiting for signal ${signal} (current: ${value.state}) with runId ${runId} (current: ${value.runId})`
+    )
+    return 'retry'
+  }
+
   // Convenience method to see if either UD or UD_REG (not restricted to UD only)
   async allCompletedOnSignal(
     ids: string[],
@@ -118,11 +183,16 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
         inputs
       const checkFn = async (): Promise<WaiterResult> => {
         try {
-          const result = await this.allCompletedOnSignal(
-            instanceIds,
-            runId,
-            signal
-          )
+          let result: Status
+          if (instanceIds.length === 1) {
+            result = await this.singleCompletedOnSignal(
+              instanceIds[0],
+              runId,
+              signal
+            )
+          } else {
+            result = await this.allCompletedOnSignal(instanceIds, runId, signal)
+          }
 
           if (result === 'success') {
             return { state: WaiterState.SUCCESS }

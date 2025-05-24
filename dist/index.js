@@ -41598,12 +41598,14 @@ class WorkerSignalOperations extends BasicValueOperations {
     static OK_STATUS = {
         UD: 'UD_OK',
         UD_REG: 'UD_REG_OK',
-        UD_REMOVE_REG: 'UD_REMOVE_REG_OK' // invalidation signal
+        UD_REMOVE_REG: 'UD_REMOVE_REG_OK', // config dereg
+        UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_OK' // release
     };
     static FAILED_STATUS = {
         UD: 'UD_FAILED',
         UD_REG: 'UD_REG_FAILED',
-        UD_REMOVE_REG: 'UD_REMOVE_REG_FAILED' // invalidation signal failure
+        UD_REMOVE_REG: 'UD_REMOVE_REG_FAILED',
+        UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_FAILED'
     };
     constructor(client) {
         super(WorkerSignalOperations.ENTITY_TYPE, null, client);
@@ -51611,7 +51613,8 @@ class InstanceOperations extends BasicOperations {
      */
     async expireInstance({ id, runId, state }) {
         const now = Date.now();
-        const past = new Date(now + -1 * 60 * 1000).toISOString(); // 1 min in past
+        const past = new Date(now + -5 * 60 * 1000).toISOString(); // 100 min in past
+        coreExports.debug(`Expiring instance. See now(${new Date(now).toISOString()}) and passed past (${past})`);
         if (!state) {
             coreExports.info('Performing general instance expiration as incoming state is undefined');
             state = (await this.getGenericItem(id, true)).state;
@@ -51752,12 +51755,7 @@ class InstanceOperations extends BasicOperations {
      * @returns {Promise<void>} Resolves when transition completes successfully
      */
     async instanceStateTransition({ id, expectedRunID, newRunID, expectedState, newState, newThreshold, conditionSelectsUnexpired = true }) {
-        coreExports.info(`
-Instance (${id}):
-  Will be transitioned from ${expectedState} to ${newState}
-  Expected run ID: ${expectedRunID || 'NONE'}
-  New run ID: ${newRunID || 'NONE'}
-  `);
+        coreExports.info(`Instance (${id}): state ${expectedState}->${newState}; runId ${expectedRunID || 'NONE'}->${newRunID || 'NONE'}; threshold ->${newThreshold}`);
         // 🔍 pre-process newThreshold to hold standard internal isoz format
         newThreshold = this.getISOZDate(newThreshold);
         const now = this.getISOZDate();
@@ -51795,9 +51793,9 @@ Instance (${id}):
             await this.client.getClient().send(command);
         }
         catch (err) {
+            coreExports.warning(`State transition failed for instance ${id}`);
             if (err.name === 'ConditionalCheckFailedException') {
                 // Inspect the failed item returned by DynamoDB
-                coreExports.warning(`State transition failed for instance ${id}`);
                 const failedItem = (await this.getGenericItem(id, true)) || {};
                 if (failedItem.state !== expectedState) {
                     coreExports.warning(`Conditional failure: state mismatch (expected=${expectedState}, actual=${failedItem.state}) 📝`);
@@ -56458,16 +56456,6 @@ JSON
 `;
     return script.trim();
 }
-function keepRunnerAliveScript(filename, period = 5) {
-    const script = `#!/bin/bash
-set +e
-while true; do
-  ./run.sh 
-  sleep ${period} # this appears to be OK
-done
-`;
-    return heredocAndchmod({ filename, script });
-}
 // NOTE: wrapping in executable scripts so that we can grep in ps -aux
 function selfTerminationScript(filename, period = 15) {
     const script = `
@@ -56533,7 +56521,6 @@ ${blockInvalidation()}
 echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
-${keepRunnerAliveScript('keep-runner-alive.sh')}
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 
@@ -56564,7 +56551,6 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 ### REGISTRATION LOOP ###
 export RUNNER_ALLOW_RUNASROOT=1 
 export RUNNER_MANUALLY_TRAP_SIG=1
-./keep-runner-alive.sh &
 
 while true; do
   echo "Starting registration loop..."
@@ -56604,19 +56590,24 @@ while true; do
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
-  # PART 6: Wait for leader to indicate all jobs done (flipped runId)
+  # PART 2.1: Start up Runner
+  ./run.sh & _runner_pid=$!
+  echo "Runner PID is $_runner_pid"
+
+  # PART 3: Wait for leader to indicate all jobs done (flipped runId)
   blockInvalidation "$_loop_id" "${longS}"
 
-  # PART 7: Remove .runner if found and perform general removal  
-  if [ -f .runner ]; then
-    echo "Found .runner removing..."
-    rm .runner
-  else
-    echo "no .runner found. following tokenless ./config.sh remove may fail..."
-  fi
+  # PART 4: Remove .runner if found and perform general removal  
+  # if [ -f .runner ]; then
+  #  echo "Found .runner removing..."
+  #  rm .runner
+  # else
+  #   echo "no .runner found. following tokenless ./config.sh remove may fail..."
+  # fi
 
-  echo "Performing tokenless config.sh remove..."
-  if ./config.sh remove; then
+  echo "Performing config.sh remove..."
+  _gh_reg_token=$(fetchGHToken)
+  if ./config.sh remove --token "$_gh_reg_token"; then
     echo "Successfully removed registration files, emitting signal..."
     emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
   else
@@ -56624,6 +56615,22 @@ while true; do
     emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
     exit 1
   fi
+
+  # Part 5: Graceful shutdown run.sh
+  echo "Shutting down run.sh and child processes..."
+  if kill -0 $_runner_pid; then
+    echo "Runner ($_runner_pid) still alive, sending kill signal and now awaiting..."
+    sudo kill -TERM $_runner_pid 
+    wait $_runner_pid
+  else
+    echo "The runner process has already been removed ($_runner_pid)"
+  fi 
+
+  # EMIT OK SIGNAL HERE
+  echo "Runner removed, emitting signal..."
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
+
+  echo "Runner can safely re-register..."
 done
 `;
     return { ...input, userData: WRAPPER_SCRIPT };
@@ -57001,14 +57008,16 @@ async function releaseWorker(inputs) {
     const { instanceItem, resourceClassConfig, runId, ddbOps, sqsOps, workerNum } = inputs;
     const instanceId = instanceItem.identifier;
     coreExports.info(`[WORKER ${workerNum}]Starting release worker routine. Responsible for safely releasing id ${instanceId}...`);
-    // Firstly, observe a specific ws signal (removal of registration)
-    const demandedSignal = WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG;
+    // Firstly, observe a specific ws signal (removal of reg & shutdown of runner)
+    const demandedSignal = WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN;
     const result = await ddbOps.workerSignalOperations.pollOnSignal({
         instanceIds: [instanceId],
         runId,
         signal: demandedSignal,
-        timeoutSeconds: 60, // allow for 1min, this is long so that on the job get-item for blockInvalidation is long as well (cpu usage minimal when running jobs)
-        intervalSeconds: 5
+        // run.sh graceful uninstallation takes about <1min. Timing out at x2
+        timeoutSeconds: 120,
+        // also interval is generous as well as blockInvalidation is long as well (cpu usage minimal when running jobs)
+        intervalSeconds: 10
     });
     if (result.state === true) {
         // still OK, hence OK to be placed in the pool
@@ -57027,7 +57036,7 @@ async function releaseWorker(inputs) {
         coreExports.warning(`[WORKER ${workerNum}] Marking ${instanceId} for expiration`);
         await ddbOps.instanceOperations.expireInstance({
             id: instanceId,
-            runId,
+            runId: '', // at this point in release, expect empty
             state: null
         });
     }

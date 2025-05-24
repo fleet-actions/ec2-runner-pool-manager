@@ -37,14 +37,17 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
     `[WORKER ${workerNum}]Starting release worker routine. Responsible for safely releasing id ${instanceId}...`
   )
 
-  // Firstly, observe a specific ws signal (removal of registration)
-  const demandedSignal = WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG
+  // Firstly, observe a specific ws signal (removal of reg & shutdown of runner)
+  const demandedSignal =
+    WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN
   const result = await ddbOps.workerSignalOperations.pollOnSignal({
     instanceIds: [instanceId],
     runId,
     signal: demandedSignal,
-    timeoutSeconds: 60, // allow for 1min, this is long so that on the job get-item for blockInvalidation is long as well (cpu usage minimal when running jobs)
-    intervalSeconds: 5
+    // run.sh graceful uninstallation takes about <1min. Timing out at x2
+    timeoutSeconds: 120,
+    // also interval is generous as well as blockInvalidation is long as well (cpu usage minimal when running jobs)
+    intervalSeconds: 10
   })
 
   if (result.state === true) {
@@ -67,7 +70,7 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
     core.warning(`[WORKER ${workerNum}] Marking ${instanceId} for expiration`)
     await ddbOps.instanceOperations.expireInstance({
       id: instanceId,
-      runId,
+      runId: '', // at this point in release, expect empty
       state: null
     })
   }

@@ -33,13 +33,15 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
   static readonly OK_STATUS = {
     UD: 'UD_OK',
     UD_REG: 'UD_REG_OK',
-    UD_REMOVE_REG: 'UD_REMOVE_REG_OK' // invalidation signal
+    UD_REMOVE_REG: 'UD_REMOVE_REG_OK', // config dereg
+    UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_OK' // release
   }
 
   static readonly FAILED_STATUS = {
     UD: 'UD_FAILED',
     UD_REG: 'UD_REG_FAILED',
-    UD_REMOVE_REG: 'UD_REMOVE_REG_FAILED' // invalidation signal failure
+    UD_REMOVE_REG: 'UD_REMOVE_REG_FAILED',
+    UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_FAILED'
   }
 
   constructor(client: DynamoDBClient) {

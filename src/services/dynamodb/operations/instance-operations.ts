@@ -86,7 +86,10 @@ export class InstanceOperations extends BasicOperations {
     state: InstanceStates | null
   }) {
     const now = Date.now()
-    const past = new Date(now + -1 * 60 * 1000).toISOString() // 1 min in past
+    const past = new Date(now + -5 * 60 * 1000).toISOString() // 100 min in past
+    core.debug(
+      `Expiring instance. See now(${new Date(now).toISOString()}) and passed past (${past})`
+    )
 
     if (!state) {
       core.info(
@@ -285,12 +288,9 @@ export class InstanceOperations extends BasicOperations {
     newThreshold,
     conditionSelectsUnexpired = true
   }: InstanceTransitionInput) {
-    core.info(`
-Instance (${id}):
-  Will be transitioned from ${expectedState} to ${newState}
-  Expected run ID: ${expectedRunID || 'NONE'}
-  New run ID: ${newRunID || 'NONE'}
-  `)
+    core.info(
+      `Instance (${id}): state ${expectedState}->${newState}; runId ${expectedRunID || 'NONE'}->${newRunID || 'NONE'}; threshold ->${newThreshold}`
+    )
 
     // 🔍 pre-process newThreshold to hold standard internal isoz format
     newThreshold = this.getISOZDate(newThreshold)
@@ -333,9 +333,9 @@ Instance (${id}):
     try {
       await this.client.getClient().send(command)
     } catch (err: any) {
+      core.warning(`State transition failed for instance ${id}`)
       if (err.name === 'ConditionalCheckFailedException') {
         // Inspect the failed item returned by DynamoDB
-        core.warning(`State transition failed for instance ${id}`)
 
         const failedItem = (await this.getGenericItem(id, true)) || {}
 

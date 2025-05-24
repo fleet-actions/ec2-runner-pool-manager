@@ -8,11 +8,7 @@ import { emitSignal } from './emit-signal.js'
 import { fetchGHToken } from './fetch-token.js'
 import { userScript, downloadRunnerArtifactScript } from './minor-scripts.js'
 import { blockRegistration, blockInvalidation } from './blockers.js'
-import {
-  heartbeatScript,
-  selfTerminationScript,
-  keepRunnerAliveScript
-} from './background-scripts.js'
+import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
 
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -66,7 +62,6 @@ ${blockInvalidation()}
 echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
-${keepRunnerAliveScript('keep-runner-alive.sh')}
 ${userScript('user-script.sh', input.userData)}
 ${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 
@@ -97,7 +92,6 @@ emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 ### REGISTRATION LOOP ###
 export RUNNER_ALLOW_RUNASROOT=1 
 export RUNNER_MANUALLY_TRAP_SIG=1
-./keep-runner-alive.sh &
 
 while true; do
   echo "Starting registration loop..."
@@ -137,19 +131,24 @@ while true; do
   emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
   echo "Successfully registered worker to gh"
 
-  # PART 6: Wait for leader to indicate all jobs done (flipped runId)
+  # PART 2.1: Start up Runner
+  ./run.sh & _runner_pid=$!
+  echo "Runner PID is $_runner_pid"
+
+  # PART 3: Wait for leader to indicate all jobs done (flipped runId)
   blockInvalidation "$_loop_id" "${longS}"
 
-  # PART 7: Remove .runner if found and perform general removal  
-  if [ -f .runner ]; then
-    echo "Found .runner removing..."
-    rm .runner
-  else
-    echo "no .runner found. following tokenless ./config.sh remove may fail..."
-  fi
+  # PART 4: Remove .runner if found and perform general removal  
+  # if [ -f .runner ]; then
+  #  echo "Found .runner removing..."
+  #  rm .runner
+  # else
+  #   echo "no .runner found. following tokenless ./config.sh remove may fail..."
+  # fi
 
-  echo "Performing tokenless config.sh remove..."
-  if ./config.sh remove; then
+  echo "Performing config.sh remove..."
+  _gh_reg_token=$(fetchGHToken)
+  if ./config.sh remove --token "$_gh_reg_token"; then
     echo "Successfully removed registration files, emitting signal..."
     emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
   else
@@ -157,6 +156,22 @@ while true; do
     emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
     exit 1
   fi
+
+  # Part 5: Graceful shutdown run.sh
+  echo "Shutting down run.sh and child processes..."
+  if kill -0 $_runner_pid; then
+    echo "Runner ($_runner_pid) still alive, sending kill signal and now awaiting..."
+    sudo kill -TERM $_runner_pid 
+    wait $_runner_pid
+  else
+    echo "The runner process has already been removed ($_runner_pid)"
+  fi 
+
+  # EMIT OK SIGNAL HERE
+  echo "Runner removed, emitting signal..."
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
+
+  echo "Runner can safely re-register..."
 done
 `
 

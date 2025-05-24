@@ -41943,7 +41943,7 @@ async function demandWsRegisteredStatus({ id, runId, ddbOps, workerNum }) {
         instanceIds: [id],
         runId,
         signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-        timeoutSeconds: 5, // watch this closely if this is too tight
+        timeoutSeconds: 10, // watch this closely if this is too tight
         intervalSeconds: 1
     });
     coreExports.info(`[CLAIM WORKER ${workerNum}] For id:(${id}) runId:(${runId}) - ${result.message}`);
@@ -56490,7 +56490,7 @@ ${HEARTBEAT_FN_NAME}
 function addBuiltInScript(tableName, context, input) {
     const RUNNER_VERSION = '2.323.0'; // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
     const longS = 5;
-    const shortS = 0.5;
+    const shortS = 0.25;
     // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
     const WRAPPER_SCRIPT = `#!/bin/bash
 

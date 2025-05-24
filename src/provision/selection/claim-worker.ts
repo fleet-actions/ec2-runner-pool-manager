@@ -194,7 +194,7 @@ export async function demandWsRegisteredStatus({
     instanceIds: [id],
     runId,
     signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-    timeoutSeconds: 5, // watch this closely if this is too tight
+    timeoutSeconds: 10, // watch this closely if this is too tight
     intervalSeconds: 1
   })
 

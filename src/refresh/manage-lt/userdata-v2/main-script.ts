@@ -30,7 +30,7 @@ export function addBuiltInScript(
 ): LTDatav2 {
   const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
   const longS = 5
-  const shortS = 0.5
+  const shortS = 0.25
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash

@@ -8,5 +8,5 @@ export const transitionToIdle =
     typeof import('../../src/release/transition-to-idle.js').transitionToIdle
   >()
 
-export const sendToPools =
-  jest.fn<typeof import('../../src/release/send-to-pools.js').sendToPools>()
+export const releaseWorker =
+  jest.fn<typeof import('../../src/release/release-workers.js').releaseWorker>()

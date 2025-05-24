@@ -29,7 +29,14 @@ export class BasicOperations extends ApplicationOperations {
   // 🔍 ISOZ format w/o fractional seconds; consistent with userdata
   protected getISOZDate(isoz: string | null = null) {
     const usedTime = isoz || new Date().toISOString() // e.g. "2025-04-24T18:31:04.111Z"
-    const simple = usedTime.split('.')[0] + 'Z' // "2025-04-24T18:31:04Z"
+    let simple: string
+    if (usedTime.split('.').length === 1) {
+      // no extra fractional second
+      simple = usedTime
+    } else {
+      simple = usedTime.split('.')[0] + 'Z' // "2025-04-24T18:31:04Z"
+    }
+
     return simple
   }
 
@@ -54,7 +61,7 @@ export class BasicOperations extends ApplicationOperations {
 
   async getGenericItem(
     newId: string | null = null,
-    isConsistentRead: boolean = false
+    isConsistentRead: boolean = true // because why not
   ): Promise<Record<string, any> | null> {
     const command = new GetCommand({
       TableName: this.tableName,

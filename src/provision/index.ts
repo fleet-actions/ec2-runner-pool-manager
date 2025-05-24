@@ -7,6 +7,7 @@ import { postProvision } from './post-provision/index.js'
 import { createEC2Service } from '../services/ec2/index.js'
 import { createDynamoDBService } from '../services/dynamodb/index.js'
 import { createSQSService } from '../services/sqs/index.js'
+import { SelectionOutput } from './types.js'
 
 export async function provision(inputs: ProvisionInputs): Promise<void> {
   const startTime = Date.now()
@@ -37,19 +38,33 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
   // selection()
   // .given resource pool, and requirements, pickup valid instance ids
   // 📝 Will need dumping mechanism (??) - or atleast deference to creation??
-  const selectionOutput = await selection({
-    instanceCount: composedInputs.instanceCount,
-    resourceClass: composedInputs.resourceClass,
-    // 🔍 for knowing which queue to ref & requeueing
-    resourceClassConfig: composedInputs.resourceClassConfig,
-    allowedInstanceTypes: composedInputs.allowedInstanceTypes,
-    sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
-    ddbOps: {
-      instanceOperations: ddbService.getInstanceOperations(),
-      heartbeatOperations: ddbService.getHeartbeatOperations()
-    }, // ddb for: locking, etc.
-    runId
-  })
+  let selectionOutput: SelectionOutput
+  if (process.env.DISABLE_SELECTION === 'true') {
+    selectionOutput = {
+      numInstancesSelected: 0,
+      numInstancesRequired: inputs.instanceCount,
+      instances: [],
+      labels: []
+    }
+  } else {
+    selectionOutput = await selection({
+      instanceCount: composedInputs.instanceCount,
+      resourceClass: composedInputs.resourceClass,
+      // 🔍 for knowing which queue to ref & requeueing
+      resourceClassConfig: composedInputs.resourceClassConfig,
+      allowedInstanceTypes: composedInputs.allowedInstanceTypes,
+      sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
+      ddbOps: {
+        instanceOperations: ddbService.getInstanceOperations(),
+        heartbeatOperations: ddbService.getHeartbeatOperations(),
+        workerSignalOperations: ddbService.getWorkerSignalOperations()
+      }, // ddb for: locking, etc.
+      ec2Ops: {
+        instanceOperations: ec2Service.getInstanceOperations()
+      },
+      runId
+    })
+  }
 
   // CREATION
   // creation()
@@ -64,8 +79,9 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
       instanceOperations: ec2Service.getInstanceOperations() // 🔍 safety precaution, immediate termination on fleet failures
     },
     ddbOps: {
-      bootstrapOperations: ddbService.getBootstrapOperations(),
-      heartbeatOperations: ddbService.getHeartbeatOperations()
+      workerSignalOperations: ddbService.getWorkerSignalOperations(),
+      heartbeatOperations: ddbService.getHeartbeatOperations(),
+      instanceOperations: ddbService.getInstanceOperations()
     },
     runId
   })
@@ -82,7 +98,9 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     // 🔍 for knowing which queue to ref if any resources need releasing
     resourceClassConfig: composedInputs.resourceClassConfig,
     ec2Ops: ec2Service.getInstanceOperations(),
-    ddbOps: ddbService.getInstanceOperations(),
+    ddbOps: {
+      instanceOperations: ddbService.getInstanceOperations()
+    },
     sqsOps: sqsService.getResourceClassConfigOperations()
   })
 

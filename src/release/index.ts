@@ -27,7 +27,10 @@ export async function release(inputs: ReleaseInputs): Promise<void> {
     resourceClassConfig,
     runId,
     idleTimeSec,
-    ddbOps: ddbService.getInstanceOperations(),
+    ddbOps: {
+      instanceOperations: ddbService.getInstanceOperations(),
+      workerSignalOperations: ddbService.getWorkerSignalOperations()
+    },
     sqsOps: sqsService.getResourceClassConfigOperations()
   })
 

@@ -7,7 +7,9 @@ export interface ProcessSuccessfulProvisionInputs {
   creationOutput: CreationOuput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+  }
 }
 
 // 🔍 Creates the output interface th t other jobs are able to pick up
@@ -30,30 +32,31 @@ export interface ProcessCreatedInstancesInput {
   creationOutput: CreationOuput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+  }
 }
 
-// 🔍 Register created instances as running
+// 🔍 created instances: Accept ---> register (internally as 'running')
 export async function processCreatedInstances(
   input: ProcessCreatedInstancesInput
 ) {
   core.info('Processing created instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { creationOutput, maxRuntimeMin, runId, ddbOps } = input
+  const { instanceOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // 🔍 usage of .all here to throw
+  // RUNNING REGISTER
   await Promise.all(
     creationOutput.instances.map(async (instance) => {
-      return ddbOps.instanceRegistration({
+      return instanceOperations.instanceRunningRegistration({
         id: instance.id,
         runId,
-        threshold,
-        resourceClass: instance.resourceClass,
-        instanceType: instance.instanceType
+        threshold
       })
     })
   )
@@ -65,25 +68,29 @@ export interface ProcessSelectedInstancesInput {
   selectionOutput: SelectionOutput
   maxRuntimeMin: number
   runId: string
-  ddbOps: InstanceOperations
+  ddbOps: {
+    instanceOperations: InstanceOperations
+  }
 }
 
-// 🔍 Selected instances transitioned from claimed to running
+// 🔍 selected instances: ACCEPT then transitioned from claimed->running
 export async function processSelectedInstances(
   input: ProcessSelectedInstancesInput
 ) {
   core.info('Processing selected instances...')
   core.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`)
   const { selectionOutput, maxRuntimeMin, runId, ddbOps } = input
+  const { instanceOperations } = ddbOps
 
   const now = Date.now()
   const millisecondsToAdd = maxRuntimeMin * 60 * 1000
   const threshold = new Date(now + millisecondsToAdd).toISOString()
 
-  // transition instances from claimed to running
+  // CLAIM->RUNNING --- usage of .all here to throw
+  // CLAIM->RUNNING
   await Promise.all(
     selectionOutput.instances.map(async (instance) => {
-      return ddbOps.instanceStateTransition({
+      return instanceOperations.instanceStateTransition({
         id: instance.id,
         expectedRunID: runId,
         newRunID: runId,

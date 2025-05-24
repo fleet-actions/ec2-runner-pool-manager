@@ -4,6 +4,7 @@ import { processFleetResponse } from './utils/process-fleet-reponse.js'
 import type { FleetResult } from '../types.js'
 import type { LTDatav2, ResourceSpec } from '../../services/types.js'
 import type { FleetOperations } from '../../services/ec2/operations/fleet-operations.js'
+import { InstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
 
 export interface FleetCreationInput {
   launchTemplate: LTDatav2
@@ -13,6 +14,7 @@ export interface FleetCreationInput {
   allowedInstanceTypes: string[]
   numInstancesRequired: number
   ec2Ops: FleetOperations
+  ddbOps: InstanceOperations
   runId: string
 }
 
@@ -57,7 +59,7 @@ export async function makeFleetAttempt(
       allowedInstanceTypes,
       targetCapacity,
       uniqueId,
-      runId
+      runId // still sending initialRunId to ec2 instance tags. This for WS UD signals
     })
 
     core.debug(
@@ -106,6 +108,41 @@ export async function fleetCreation(
     input.numInstancesRequired,
     attemptNumber
   )
+
+  if (result.status === 'success') {
+    core.info('creation is a success, registering creation on db...')
+
+    const now = Date.now()
+    const millisecondsToAdd = 10 * 60 * 1000 // 🔍 s to ms
+    const threshold = new Date(now + millisecondsToAdd).toISOString()
+
+    const values = await Promise.all(
+      result.instances.map((instance) => {
+        return input.ddbOps.instanceCreatedRegistration({
+          id: instance.id,
+          runId: input.runId,
+          resourceClass: instance.resourceClass,
+          instanceType: instance.instanceType,
+          threshold
+        })
+      })
+    )
+
+    // Check if any registrations failed
+    const failedInstances = result.instances.filter(
+      (_, index) => !values[index]
+    )
+
+    if (failedInstances.length > 0) {
+      // Update status to failed if any registrations failed
+      result.status = 'failed'
+
+      // Log the failed instance IDs
+      core.debug(
+        `Failed to register instances: ${failedInstances.map((instance) => instance.id).join(', ')}`
+      )
+    }
+  }
 
   core.info('Completed fleet creation routine.')
   return result

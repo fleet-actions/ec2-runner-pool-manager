@@ -46,11 +46,11 @@ export async function cleanup(input: ActionInputs) {
 
   // 🔍 clear all non-metadata ddb state
   core.info('Clearing ddb of instance data...')
-  core.info('Clearing ddb of bootstrap & hearbeat & instance information...')
+  core.info('Clearing ddb of signal & hearbeat & instance information...')
   await Promise.all([
-    await ddbService.getBootstrapOperations().clearPartition(),
     await ddbService.getHeartbeatOperations().clearPartition(),
-    await ddbService.getInstanceOperations().clearPartition()
+    await ddbService.getInstanceOperations().clearPartition(),
+    await ddbService.getWorkerSignalOperations().clearPartition()
   ])
 
   core.info('DDB has been cleared...')

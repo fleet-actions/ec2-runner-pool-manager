@@ -123,6 +123,7 @@ export function buildFleetCreationInput(
     uniqueId,
     runId
   } = input
+  // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-ec2/Interface/FleetLaunchTemplateSpecificationRequest/
   const launchTemplateSpecification: FleetLaunchTemplateSpecificationRequest = {
     LaunchTemplateName: launchTemplateName,
     Version: '$Default'

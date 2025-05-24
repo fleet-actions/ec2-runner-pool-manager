@@ -19,7 +19,7 @@ export class HeartbeatOperations extends BasicValueOperations<string> {
   static readonly STATUS = {
     PING: 'PING'
   }
-  static readonly ENTITY_TYPE = 'HEARTHBEAT'
+  static readonly ENTITY_TYPE = 'HEARTBEAT'
   static readonly PERIOD_SECONDS = 5
   static readonly HEALTHY = 'healthy'
   static readonly UNHEALTHY = 'unhealthy'

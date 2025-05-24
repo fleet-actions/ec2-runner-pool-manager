@@ -31256,7 +31256,7 @@ const BASE_DEFAULTS = {
 };
 const REFRESH_DEFAULTS = {
     'github-reg-token-refresh-min': 30,
-    'idle-time-sec': 300,
+    'idle-time-sec': 7 * 60, // 7 min idle time to acc for gh deregistration time T_T
     'max-runtime-min': 30,
     'pre-runner-script': DEFAULT_SCRIPT,
     'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT
@@ -41217,7 +41217,14 @@ class BasicOperations extends ApplicationOperations$3 {
     // 🔍 ISOZ format w/o fractional seconds; consistent with userdata
     getISOZDate(isoz = null) {
         const usedTime = isoz || new Date().toISOString(); // e.g. "2025-04-24T18:31:04.111Z"
-        const simple = usedTime.split('.')[0] + 'Z'; // "2025-04-24T18:31:04Z"
+        let simple;
+        if (usedTime.split('.').length === 1) {
+            // no extra fractional second
+            simple = usedTime;
+        }
+        else {
+            simple = usedTime.split('.')[0] + 'Z'; // "2025-04-24T18:31:04Z"
+        }
         return simple;
     }
     getPK() {
@@ -41236,7 +41243,8 @@ class BasicOperations extends ApplicationOperations$3 {
             newId: input
         });
     }
-    async getGenericItem(newId = null, isConsistentRead = false) {
+    async getGenericItem(newId = null, isConsistentRead = true // because why not
+    ) {
         const command = new GetCommand({
             TableName: this.tableName,
             Key: {
@@ -41386,7 +41394,7 @@ class HeartbeatOperations extends BasicValueOperations {
     static STATUS = {
         PING: 'PING'
     };
-    static ENTITY_TYPE = 'HEARTHBEAT';
+    static ENTITY_TYPE = 'HEARTBEAT';
     static PERIOD_SECONDS = 5;
     static HEALTHY = 'healthy';
     static UNHEALTHY = 'unhealthy';
@@ -41584,9 +41592,251 @@ class HeartbeatOperations extends BasicValueOperations {
     }
 }
 
+// Will appear as { "PK": "TYPE#WS", "SK": "i-123", value: { state: "...", runId: "..." } }
+class WorkerSignalOperations extends BasicValueOperations {
+    static ENTITY_TYPE = 'WS';
+    static OK_STATUS = {
+        UD: 'UD_OK',
+        UD_REG: 'UD_REG_OK',
+        UD_REMOVE_REG: 'UD_REMOVE_REG_OK', // config dereg
+        UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_OK' // release
+    };
+    static FAILED_STATUS = {
+        UD: 'UD_FAILED',
+        UD_REG: 'UD_REG_FAILED',
+        UD_REMOVE_REG: 'UD_REMOVE_REG_FAILED',
+        UD_REMOVE_REG_REMOVE_RUN: 'UD_REMOVE_REG_REMOVE_RUN_FAILED'
+    };
+    constructor(client) {
+        super(WorkerSignalOperations.ENTITY_TYPE, null, client);
+    }
+    // ... existing code ...
+    // Checks if a single instance has completed with the expected signal
+    async singleCompletedOnSignal(id, runId, signal) {
+        coreExports.debug(`Checking signal for instance ${id} with runId: ${runId}, signal: ${signal}`);
+        // Validate the demanded signal
+        const allStatuses = [
+            ...Object.values(WorkerSignalOperations.OK_STATUS),
+            ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+        ];
+        if (!allStatuses.includes(signal)) {
+            coreExports.warning(`Signal ${signal} is not a valid signal to look for. Valid signals: ${allStatuses.join(', ')}`);
+            throw new Error(`Signal ${signal} is not a valid signal`);
+        }
+        // Get the single value
+        const value = await this.getValue(id);
+        // Log the state
+        if (!value) {
+            coreExports.info(`Instance ${id}: No signal record found`);
+            return 'retry';
+        }
+        coreExports.debug(`Instance ${id} current state: ${value.state}, runId: ${value.runId}`);
+        // Check for failure states
+        if (Object.values(WorkerSignalOperations.FAILED_STATUS).includes(value.state) &&
+            value.runId === runId) {
+            coreExports.info(`Instance ${id}: Failed with state ${value.state} for runId ${runId}`);
+            return 'failed';
+        }
+        // Check for success
+        if (value.state === signal && value.runId === runId) {
+            coreExports.info(`Instance ${id}: Successfully completed with signal ${signal} for runId ${runId}`);
+            return 'success';
+        }
+        // Any other case is a retry
+        coreExports.info(`Instance ${id}: Waiting for signal ${signal} (current: ${value.state}) with runId ${runId} (current: ${value.runId})`);
+        return 'retry';
+    }
+    // Convenience method to see if either UD or UD_REG (not restricted to UD only)
+    async allCompletedOnSignal(ids, runId, signal) {
+        coreExports.debug(`Received: ids ${ids}; runId: ${runId}, signal: ${signal}`);
+        // first, validate the demanded signal
+        const allStatuses = [
+            ...Object.values(WorkerSignalOperations.OK_STATUS),
+            ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+        ];
+        if (!allStatuses.includes(signal)) {
+            coreExports.warning(`Signal ${signal} is not a valid signal to look for. See valid signas ${allStatuses}. Throwing error...`);
+            throw new Error(`Signal ${signal} is not a valid signal...`);
+        }
+        const values = await this.getValues(ids);
+        coreExports.debug(`Received ws values: ${JSON.stringify(values, null, 2)}`);
+        const report = this.buildSignalReport(ids, values, runId);
+        coreExports.debug(`Received ws signal report: ${JSON.stringify(report, null, 2)}`);
+        // Given runId, if any failed staus is found - mark for failure
+        const hasAnyFailures = Object.values(WorkerSignalOperations.FAILED_STATUS).some((failedStatus) => {
+            const ary = report.matchingIds[failedStatus];
+            if (!ary)
+                throw new Error(`ERROR: ${failedStatus} may be an invalid state. Ary (${ary}) is not an valid array`);
+            return ary.length > 0;
+        });
+        if (hasAnyFailures) {
+            return 'failed';
+        }
+        // Success conditions:
+        // 1. All instances have the demanded signal state with matching runId
+        // 2. None are missing
+        const s = signal;
+        if (report.missing.length === 0 &&
+            report.matchingIds[s].length === ids.length) {
+            return 'success';
+        }
+        return 'retry';
+    }
+    /**
+     * Polls for all instances to complete userdata and registration with the given runId
+     *
+     * @param instanceIds List of instance IDs to check
+     * @param runId The expected runId that should match
+     * @param timeoutSeconds Total wait time in seconds
+     * @param intervalSeconds Interval between polls in seconds
+     * @returns Result object with state and message
+     */
+    async pollOnSignal(inputs) {
+        try {
+            // Callback to check completion status
+            const { instanceIds, runId, signal, timeoutSeconds, intervalSeconds } = inputs;
+            const checkFn = async () => {
+                try {
+                    let result;
+                    if (instanceIds.length === 1) {
+                        result = await this.singleCompletedOnSignal(instanceIds[0], runId, signal);
+                    }
+                    else {
+                        result = await this.allCompletedOnSignal(instanceIds, runId, signal);
+                    }
+                    if (result === 'success') {
+                        return { state: WaiterState.SUCCESS };
+                    }
+                    else if (result === 'failed') {
+                        return {
+                            state: WaiterState.FAILURE,
+                            reason: new Error('Some instances failed registration')
+                        };
+                    }
+                    else {
+                        // 'retry' case
+                        return { state: WaiterState.RETRY };
+                    }
+                }
+                catch (error) {
+                    return { state: WaiterState.FAILURE, reason: error };
+                }
+            };
+            // Create waiter
+            const waiter = createWaiter({
+                // Hack to fill in client field with valid aws sdk client
+                client: this.client.getClient(),
+                maxWaitTime: timeoutSeconds,
+                minDelay: intervalSeconds,
+                maxDelay: intervalSeconds
+            }, checkFn, async (_client, check) => check());
+            // Await on waiter
+            const result = await waiter;
+            if (result.state === WaiterState.SUCCESS) {
+                const final = WorkerSignalOperations.OK_STATUS.UD_REG;
+                return {
+                    state: true,
+                    message: `All ${instanceIds.length} instances completed ${final} ${runId} 🎉`
+                };
+            }
+            else if (result.state === WaiterState.TIMEOUT) {
+                return {
+                    state: false,
+                    message: `Timed out after ${timeoutSeconds} seconds waiting for instances to complete ⌛️`
+                };
+            }
+            else if (result.state === WaiterState.FAILURE) {
+                return {
+                    state: false,
+                    message: result.reason?.message || 'Registration process failed'
+                };
+            }
+            else {
+                return {
+                    state: false,
+                    message: `Unexpected waiter state: ${result.state}`
+                };
+            }
+        }
+        catch (error) {
+            return { state: false, message: error.message };
+        }
+    }
+    /**
+     * Builds a detailed report of instance states with runId matching
+     */
+    buildSignalReport(ids, values, expectedRunId) {
+        // Initialize results structure
+        const missing = [];
+        const matchingIds = {};
+        const nonMatchingIds = {};
+        // Initialize all possible states from both OK and FAILED status objects
+        const statusArray = [
+            ...Object.values(WorkerSignalOperations.OK_STATUS),
+            ...Object.values(WorkerSignalOperations.FAILED_STATUS)
+        ];
+        statusArray.forEach((status) => {
+            matchingIds[status] = [];
+            nonMatchingIds[status] = [];
+        });
+        // Categorize each instance
+        ids.forEach((id, index) => {
+            const value = values[index];
+            if (value === null) {
+                missing.push(id);
+            }
+            else {
+                const state = value.state;
+                // Check if runId matches
+                if (value.runId === expectedRunId) {
+                    // Add to matching IDs by state
+                    if (matchingIds[state]) {
+                        matchingIds[state].push(id);
+                    }
+                }
+                else {
+                    // Add to non-matching IDs by state
+                    if (nonMatchingIds[state]) {
+                        nonMatchingIds[state].push({
+                            instanceId: id,
+                            actualRunId: value.runId
+                        });
+                    }
+                }
+            }
+        });
+        // Log main summary with core.info
+        let infoMessage = `Worker signal tracking: SUMMARY (matching runId: ${expectedRunId})\n`;
+        infoMessage += `- Missing: ${missing.join(', ') || 'none'}\n`;
+        Object.entries(matchingIds).forEach(([state, stateIds]) => {
+            if (stateIds.length > 0) {
+                infoMessage += `- ${state}: ${stateIds.join(', ')}\n`;
+            }
+        });
+        coreExports.info(infoMessage);
+        // Log non-matching details with core.debug
+        let debugMessage = `Worker signal tracking: NON-MATCHING RUNID DETAILS\n`;
+        let hasNonMatching = false;
+        // Only include states that have non-matching IDs
+        Object.entries(nonMatchingIds).forEach(([state, items]) => {
+            if (items.length > 0) {
+                hasNonMatching = true;
+                debugMessage += `- ${state}: ${items.map((item) => `${item.instanceId} (runId: ${item.actualRunId})`).join(', ')}\n`;
+            }
+        });
+        if (hasNonMatching) {
+            coreExports.debug(debugMessage);
+        }
+        else {
+            coreExports.debug('Worker signal tracking: No instances with non-matching runIds');
+        }
+        return { missing, matchingIds, nonMatchingIds };
+    }
+}
+
 async function claimWorker(input) {
     const { workerNumber: workerNum, resourceClass, // for logging
-    poolPickupManager, ddbOps, runId } = input;
+    poolPickupManager, ddbOps, ec2Ops, runId } = input;
     while (true) {
         const instance = await poolPickupManager.pickup();
         if (!instance) {
@@ -41610,18 +41860,40 @@ async function claimWorker(input) {
         }
         const instanceHealth = await ddbOps.heartbeatOperations.isInstanceHealthy(id);
         if (instanceHealth.state !== HeartbeatOperations.HEALTHY) {
-            coreExports.info(`[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Retrying...`);
-            await handleUnhealthyClaimedInstances({
+            await handleClaimedInstanceExpiry({
                 id,
                 runId,
                 ddbOps: ddbOps.instanceOperations
             });
+            coreExports.info(`[CLAIM WORKER ${workerNum}] The following instance is unhealthy (${id}). Marked expired. Now retrying...`);
+            continue;
+        }
+        const instanceWsState = await demandWsRegisteredStatus({
+            id,
+            runId,
+            ddbOps: ddbOps.workerSignalOperations,
+            workerNum
+        });
+        if (!instanceWsState) {
+            // nah, straight termination to prevent race conditions (ie. instance picking up job without being accounted for)
+            // simply expiring instance would invoke async termination from refresh OR self-termination agent
+            // but, both are still too delayed (former happens every ~13-45m, latter every 15s)
+            // EC2 TERMINATION && EXPIRY
+            await Promise.allSettled([
+                ec2Ops.instanceOperations.terminateInstances([id]),
+                handleClaimedInstanceExpiry({
+                    id,
+                    runId,
+                    ddbOps: ddbOps.instanceOperations
+                })
+            ]);
+            coreExports.info(`[CLAIM WORKER ${workerNum}] The following instance does not have required wssignal in time (${id}). Marked expired. Now retrying...`);
             continue;
         }
         // if reaches end of while condition, return
-        coreExports.info(`[CLAIM WORKER ${workerNum}] Instance (${id}) is claimed and healthy`);
+        coreExports.info(`[CLAIM WORKER ${workerNum}] Instance (${id}) is claimed, healthy and registered`);
         return {
-            message: `Instance (${id}) is claimed and healthy`,
+            message: `Instance (${id}) is claimed, healthy and registered`,
             payload: instance
         };
     }
@@ -41650,27 +41922,32 @@ async function attemptToClaimInstance(input) {
         return false;
     }
 }
-async function handleUnhealthyClaimedInstances(inputs) {
+async function handleClaimedInstanceExpiry(inputs) {
     const { id, runId, ddbOps } = inputs;
     try {
-        const now = Date.now();
-        const past = new Date(now + -1 * 60 * 1000).toISOString();
-        coreExports.info(`Marking unhealthy claimed instance for termination: (${id})`);
-        await ddbOps.instanceStateTransition({
+        coreExports.info(`Marking claimed instance for termination: (${id})`);
+        await ddbOps.expireInstance({
             id,
-            expectedRunID: runId,
-            newRunID: '', // important so that release does not pick this up (no longer registered against this run)
-            expectedState: 'claimed',
-            newState: 'claimed', // no state change
-            newThreshold: past, // this allows the refresh grounding mechanism to pickup this id for termination
-            conditionSelectsUnexpired: true
+            runId,
+            state: 'claimed'
         });
-        coreExports.info(`Successfully marked unhealthy claimed instance for termination (${id})...`);
+        coreExports.info(`Successfully marked claimed instance for termination (${id})...`);
     }
     catch (e) {
         coreExports.warning(`Failed to mark instance ${id} for termination. Expect error on release mode - ${e}`);
         return false;
     }
+}
+async function demandWsRegisteredStatus({ id, runId, ddbOps, workerNum }) {
+    const result = await ddbOps.pollOnSignal({
+        instanceIds: [id],
+        runId,
+        signal: WorkerSignalOperations.OK_STATUS.UD_REG,
+        timeoutSeconds: 10, // watch this closely if this is too tight
+        intervalSeconds: 1
+    });
+    coreExports.info(`[CLAIM WORKER ${workerNum}] For id:(${id}) runId:(${runId}) - ${result.message}`);
+    return result.state;
 }
 
 /**
@@ -41828,7 +42105,7 @@ class PoolPickUpManager {
 async function selection(input) {
     coreExports.info('starting selection routine...');
     coreExports.debug(`recieved: ${JSON.stringify({ ...input, ddbOps: '', sqsOps: '' })}`);
-    const { allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps, ddbOps, runId } = input;
+    const { allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps, ddbOps, ec2Ops, runId } = input;
     // create ONE pickup manager for all
     const poolPickupManager = new PoolPickUpManager(allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps);
     const requiredCount = input.instanceCount;
@@ -41840,7 +42117,11 @@ async function selection(input) {
             resourceClass,
             ddbOps: {
                 instanceOperations: ddbOps.instanceOperations,
-                heartbeatOperations: ddbOps.heartbeatOperations
+                heartbeatOperations: ddbOps.heartbeatOperations,
+                workerSignalOperations: ddbOps.workerSignalOperations
+            },
+            ec2Ops: {
+                instanceOperations: ec2Ops.instanceOperations
             },
             runId
         });
@@ -41933,6 +42214,7 @@ function buildFleetTagSpecifications({ uniqueId, runId }) {
 }
 function buildFleetCreationInput(input) {
     const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId, runId } = input;
+    // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-ec2/Interface/FleetLaunchTemplateSpecificationRequest/
     const launchTemplateSpecification = {
         LaunchTemplateName: launchTemplateName,
         Version: '$Default'
@@ -42038,7 +42320,7 @@ async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
             allowedInstanceTypes,
             targetCapacity,
             uniqueId,
-            runId
+            runId // still sending initialRunId to ec2 instance tags. This for WS UD signals
         });
         coreExports.debug(`Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`);
         // 2. Use FleetOperations to make the API call
@@ -42073,6 +42355,29 @@ async function fleetCreation(input) {
     // .If retries are implemented, num instances required can be changed as needed
     const attemptNumber = 1;
     const result = await makeFleetAttempt(input, input.numInstancesRequired, attemptNumber);
+    if (result.status === 'success') {
+        coreExports.info('creation is a success, registering creation on db...');
+        const now = Date.now();
+        const millisecondsToAdd = 10 * 60 * 1000; // 🔍 s to ms
+        const threshold = new Date(now + millisecondsToAdd).toISOString();
+        const values = await Promise.all(result.instances.map((instance) => {
+            return input.ddbOps.instanceCreatedRegistration({
+                id: instance.id,
+                runId: input.runId,
+                resourceClass: instance.resourceClass,
+                instanceType: instance.instanceType,
+                threshold
+            });
+        }));
+        // Check if any registrations failed
+        const failedInstances = result.instances.filter((_, index) => !values[index]);
+        if (failedInstances.length > 0) {
+            // Update status to failed if any registrations failed
+            result.status = 'failed';
+            // Log the failed instance IDs
+            coreExports.debug(`Failed to register instances: ${failedInstances.map((instance) => instance.id).join(', ')}`);
+        }
+    }
     coreExports.info('Completed fleet creation routine.');
     return result;
 }
@@ -42080,8 +42385,8 @@ async function fleetCreation(input) {
 async function fleetValidation(input) {
     coreExports.info('starting fleet validation routine...');
     coreExports.debug(`See fleet validation input: ${JSON.stringify(input.fleetResult)}`);
-    const { fleetResult } = input;
-    const { bootstrapOperations, heartbeatOperations } = input.ddbOps;
+    const { fleetResult, runId } = input;
+    const { heartbeatOperations, workerSignalOperations } = input.ddbOps;
     let currentStatus = fleetResult.status;
     // early invalidation if state is anything but a success
     if (currentStatus !== 'success') {
@@ -42090,7 +42395,7 @@ async function fleetValidation(input) {
     }
     const instanceIds = input.fleetResult.instances.map((instance) => instance.id);
     try {
-        currentStatus = await checkBootstrapStatus(currentStatus, instanceIds, bootstrapOperations);
+        currentStatus = await checkWSStatus(currentStatus, runId, instanceIds, workerSignalOperations);
         currentStatus = await checkHeartbeatStatus(currentStatus, instanceIds, heartbeatOperations);
         if (currentStatus !== 'success') {
             currentStatus = 'failed';
@@ -42103,17 +42408,21 @@ async function fleetValidation(input) {
         return 'failed';
     }
 }
-async function checkBootstrapStatus(currentStatus, instanceIds, bootstrapOperations) {
+async function checkWSStatus(currentStatus, runId, instanceIds, workerOperations) {
     // 🔍 Guard Clause to exit early if already in failed state
     if (currentStatus !== 'success') {
         coreExports.warning(`fleet validation status is not currently success (${currentStatus}), returning failed`);
         return 'failed';
     }
-    const bStatus = await bootstrapOperations.areAllInstancesCompletePoll(instanceIds, 3 * 60, // check for 3 mins, to determine reasonable timeout, define your ami startup time
-    10 // check every 10s
-    );
-    if (!bStatus.state) {
-        coreExports.error(`fleet validation failed: not all instances have bootstrapped successfully. See message: ${bStatus.message}\n`);
+    const wsstatus = await workerOperations.pollOnSignal({
+        instanceIds,
+        runId,
+        signal: WorkerSignalOperations.OK_STATUS.UD_REG,
+        timeoutSeconds: 3 * 60, // timeout after
+        intervalSeconds: 10 // check every
+    });
+    if (!wsstatus.state) {
+        coreExports.error(`fleet validation failed: not all instances have booted up to an OK state. See message: ${wsstatus.message}\n`);
         currentStatus = 'failed';
     }
     return currentStatus;
@@ -42158,12 +42467,14 @@ async function creation(input) {
         allowedInstanceTypes: input.allowedInstanceTypes,
         numInstancesRequired: input.numInstancesRequired,
         ec2Ops: input.ec2Ops.fleetOperations,
+        ddbOps: input.ddbOps.instanceOperations,
         runId: input.runId
     });
     // this is where we would determine
     // Do validation if fleet creation is 'state=success' (ie. capacity pool available)
     const fleetState = await fleetValidation({
         fleetResult,
+        runId: input.runId,
         ddbOps: input.ddbOps
     });
     // 📝 Do not allow 'partial' fleet state at this point;
@@ -42250,37 +42561,38 @@ async function processSuccessfulProvision(input) {
     // ✅ OK to proceed to next job from here
     coreExports.info('completing compose action outputs routine...');
 }
-// 🔍 Register created instances as running
+// 🔍 created instances: Accept ---> register (internally as 'running')
 async function processCreatedInstances(input) {
     coreExports.info('Processing created instances...');
     coreExports.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`);
     const { creationOutput, maxRuntimeMin, runId, ddbOps } = input;
+    const { instanceOperations } = ddbOps;
     const now = Date.now();
     const millisecondsToAdd = maxRuntimeMin * 60 * 1000;
     const threshold = new Date(now + millisecondsToAdd).toISOString();
-    // 🔍 usage of .all here to throw
+    // RUNNING REGISTER
     await Promise.all(creationOutput.instances.map(async (instance) => {
-        return ddbOps.instanceRegistration({
+        return instanceOperations.instanceRunningRegistration({
             id: instance.id,
             runId,
-            threshold,
-            resourceClass: instance.resourceClass,
-            instanceType: instance.instanceType
+            threshold
         });
     }));
     coreExports.info('Finished processing created instances...');
 }
-// 🔍 Selected instances transitioned from claimed to running
+// 🔍 selected instances: ACCEPT then transitioned from claimed->running
 async function processSelectedInstances(input) {
     coreExports.info('Processing selected instances...');
     coreExports.debug(`Recevied: ${JSON.stringify({ ...input, ddbOps: '' })}`);
     const { selectionOutput, maxRuntimeMin, runId, ddbOps } = input;
+    const { instanceOperations } = ddbOps;
     const now = Date.now();
     const millisecondsToAdd = maxRuntimeMin * 60 * 1000;
     const threshold = new Date(now + millisecondsToAdd).toISOString();
-    // transition instances from claimed to running
+    // CLAIM->RUNNING --- usage of .all here to throw
+    // CLAIM->RUNNING
     await Promise.all(selectionOutput.instances.map(async (instance) => {
-        return ddbOps.instanceStateTransition({
+        return instanceOperations.instanceStateTransition({
             id: instance.id,
             expectedRunID: runId,
             newRunID: runId,
@@ -42421,7 +42733,7 @@ async function postProvision(input) {
                 idleTimeSec,
                 resourceClassConfig,
                 runId,
-                ddbOps,
+                ddbOps: ddbOps.instanceOperations,
                 sqsOps
             });
             coreExports.setFailed('Provision has gracefully failed: Resources have been released.\nSee provision messaging for cause of failures.');
@@ -42439,7 +42751,7 @@ async function postProvision(input) {
             creationOutput,
             runId,
             ec2Ops,
-            ddbOps
+            ddbOps: ddbOps.instanceOperations
         });
         coreExports.error(`Post-provision error: ${error instanceof Error ? error.message : String(error)}`);
         if (error instanceof Error && error.stack) {
@@ -51275,181 +51587,6 @@ class GeneralMetadataOperations extends ApplicationOperations$3 {
     }
 }
 
-class BootstrapOperations extends BasicValueOperations {
-    // state transitions:
-    // unpolled (registerd for tracking, but not ddb polled)
-    // -> missing (polled, but item not present)
-    // -> udcompleted (polled, ud completed, not registered yet)
-    // -> udregcompleted (polled, ud-reg-completed ✅)
-    static STATUS = {
-        USERDATA_COMPLETED: 'USERDATA_COMPLETED',
-        USERDATA_REGISTRATION_COMPLETED: 'USERDATA_REGISTRATION_COMPLETED'
-    };
-    static ENTITY_TYPE = 'BOOTSTRAP';
-    _totalInstanceCount = 0;
-    _instanceStates = {
-        unpolled: [],
-        missing: [],
-        udComplete: [],
-        udRegComplete: []
-    };
-    constructor(client) {
-        super(BootstrapOperations.ENTITY_TYPE, null, client);
-    }
-    async registerInstancesForTracking(instanceIds) {
-        // Reset the state and add all instances as unpolled
-        coreExports.info(`Bootstrap tracking: registered (${instanceIds.length}) of instances; ids: (${instanceIds})`);
-        this._instanceStates = {
-            unpolled: [...instanceIds],
-            missing: [],
-            udComplete: [],
-            udRegComplete: []
-        };
-        this._totalInstanceCount = instanceIds.length;
-    }
-    async areAllInstancesComplete() {
-        const states = await this.getInstanceStates();
-        const incomplete = [
-            ...states.unpolled,
-            ...states.missing,
-            ...states.udComplete
-        ];
-        const difference = this._totalInstanceCount - states.udRegComplete.length;
-        coreExports.info(`Bootstrap tracking: ${states.udRegComplete.length}/${this._totalInstanceCount} are userdata-registration complete`);
-        // NOTE: These are for logging purposes
-        if (difference === 0) {
-            coreExports.info('Bootstrap tracking: all instances are ud-reg-complete - yay! 🍻');
-        }
-        else if (difference <= 0) {
-            throw new Error(`Bootstrap tracking: There are more ud-reg-complete instances (${states.udRegComplete.length}) than registered (${this._totalInstanceCount}) - how?`);
-        }
-        else {
-            coreExports.info(`Bootstrap tracking: not all registered instances are ud-reg-complete: ${incomplete} - try again ♻️`);
-        }
-        return difference === 0;
-    }
-    /**
-     * Polls areAllInstancesComplete until success or timeout.
-     *
-     * @param timeoutSeconds Total time to wait in seconds.
-     * @param intervalSeconds Interval between polls in seconds.
-     */
-    async areAllInstancesCompletePoll(instanceIds, timeoutSeconds = 120, intervalSeconds = 10) {
-        try {
-            // register instances
-            await this.registerInstancesForTracking(instanceIds);
-            // 🔍 Callback to used to define validity of state
-            const checkFn = async () => {
-                try {
-                    const done = await this.areAllInstancesComplete();
-                    return done
-                        ? { state: WaiterState.SUCCESS }
-                        : { state: WaiterState.RETRY };
-                }
-                catch (error) {
-                    return { state: WaiterState.FAILURE, reason: error };
-                }
-            };
-            // create waiter
-            const waiter = createWaiter({
-                // 🔍 Hack to fill in client field with valid aws sdk client
-                client: this.client.getClient(),
-                maxWaitTime: timeoutSeconds,
-                minDelay: intervalSeconds,
-                maxDelay: intervalSeconds
-            }, checkFn, async (_client, check) => check());
-            // await on waiter
-            const result = await waiter;
-            if (result.state === WaiterState.SUCCESS) {
-                return {
-                    state: true,
-                    message: 'All instances are userdata-registration complete 🎉'
-                };
-            }
-            else if (result.state === WaiterState.TIMEOUT) {
-                return {
-                    state: false,
-                    message: `Timed out after ${timeoutSeconds} seconds waiting for instances to complete ⌛️`
-                };
-            }
-            else if (result.state === WaiterState.FAILURE) {
-                return {
-                    state: false,
-                    message: result.reason?.message ||
-                        'Failed to check instance completion status'
-                };
-            }
-            else {
-                return {
-                    state: false,
-                    message: `Unexpected waiter state: ${result.state}`
-                };
-            }
-        }
-        catch (error) {
-            return { state: false, message: error.message };
-        }
-    }
-    //
-    //
-    // PRIVATE METHODS
-    //
-    //
-    async refreshInstanceStates() {
-        if (this._totalInstanceCount === 0)
-            throw new Error('Bootstrap tracking: cannot get bootstrap states, there are no instances registered to track');
-        // Only poll instances that need polling (unpolled + ones not in udRegComplete)
-        const instancesNeedingUpdate = [
-            ...this._instanceStates.unpolled,
-            ...this._instanceStates.missing,
-            ...this._instanceStates.udComplete
-        ];
-        if (instancesNeedingUpdate.length === 0) {
-            coreExports.info('Bootstrap tracking: no instances need re-tracking');
-            coreExports.info(`See all ready instances ${this._instanceStates.udRegComplete}`);
-            return;
-        }
-        // Get values for instances that need updating
-        coreExports.info(`Bootstrap tracking: tracking: ${instancesNeedingUpdate}`);
-        const states = await this.getValues(instancesNeedingUpdate);
-        // Create new state object (will replace the old one)
-        const newStates = {
-            unpolled: [],
-            missing: [],
-            udComplete: [],
-            udRegComplete: [...this._instanceStates.udRegComplete] // Keep existing completed instances
-        };
-        // Categorize each instance based on its state
-        instancesNeedingUpdate.forEach((id, index) => {
-            const state = states[index];
-            if (state === null) {
-                coreExports.info(`Bootstrap tracking: missing - ${id}`);
-                newStates.missing.push(id);
-            }
-            else if (state === BootstrapOperations.STATUS.USERDATA_COMPLETED) {
-                coreExports.info(`Bootstrap tracking: ud complete - ${id}`);
-                newStates.udComplete.push(id);
-            }
-            else if (state === BootstrapOperations.STATUS.USERDATA_REGISTRATION_COMPLETED) {
-                coreExports.info(`Bootstrap tracking: ud-reg complete - ${id}`);
-                newStates.udRegComplete.push(id);
-            }
-        });
-        // 🔍 Detailed logging
-        coreExports.info(`Bootstrap tracking: FOUND STATE\n` +
-            `- unpolled: ${newStates.unpolled.join(', ') || 'none'}\n` +
-            `- missing: ${newStates.missing.join(', ') || 'none'}\n` +
-            `- ud-complete: ${newStates.udComplete.join(', ') || 'none'}\n` +
-            `- ud-reg-complete: ${newStates.udRegComplete.join(', ') || 'none'}`);
-        // Update the instance states
-        this._instanceStates = newStates;
-    }
-    async getInstanceStates() {
-        await this.refreshInstanceStates();
-        return { ...this._instanceStates };
-    }
-}
-
 // 🔍 Might not use basic value operations for this one.
 // .OK on some code duplication for now.
 class InstanceOperations extends BasicOperations {
@@ -51462,6 +51599,36 @@ class InstanceOperations extends BasicOperations {
     // USED PUBLIC INTERFACES (To be Tested)
     //
     //
+    /**
+     * Expires an instance by updating its threshold to 1min past current time.
+     * Effect: system mechanisms with send termination signal to instance
+     *
+     * @param {object} params - The instance parameters
+     * @param {string} params.id - Instance identifier
+     * @param {string} params.runId - Run ID that must match current record
+     * @param {InstanceStates | null} params.state - Current state of the instance (if null, will expire from any state)
+     *
+     * @returns {Promise<void>} Resolves when expiration completes successfully
+     * @throws {Error} Throws error when state transition fails
+     */
+    async expireInstance({ id, runId, state }) {
+        const now = Date.now();
+        const past = new Date(now + -5 * 60 * 1000).toISOString(); // 100 min in past
+        coreExports.debug(`Expiring instance. See now(${new Date(now).toISOString()}) and passed past (${past})`);
+        if (!state) {
+            coreExports.info('Performing general instance expiration as incoming state is undefined');
+            state = (await this.getGenericItem(id, true)).state;
+        }
+        await this.instanceStateTransition({
+            id,
+            expectedRunID: runId,
+            newRunID: runId,
+            expectedState: state,
+            newState: state,
+            newThreshold: this.getISOZDate(past),
+            conditionSelectsUnexpired: true
+        });
+    }
     // 🔍 REFRESH (managing terminations)
     async getExpiredInstancesByStates(states) {
         const now = this.getISOZDate();
@@ -51502,28 +51669,16 @@ class InstanceOperations extends BasicOperations {
             throw err;
         }
     }
-    // 🔍 REFRESH (managing terminations)
-    async instanceTermination({ id, expectedState, expectedRunID }) {
-        const now = this.getISOZDate();
-        return await this.instanceStateTransition({
-            id,
-            expectedState,
-            expectedRunID,
-            newRunID: '',
-            newState: 'terminated',
-            newThreshold: now,
-            conditionSelectsUnexpired: false
-        });
-    }
     // 🔍 PROVISION (DUMPING)
     async deleteInstanceItems(ids, runId = null) {
         // all settled OK on hard deletion; ensures all signals sent
         return await Promise.allSettled(ids.map((id) => this.deleteInstanceItem(id, runId)));
     }
     // PROVISION (Regisration of created instances)
-    // 🔍 Registers instance to running from creation
-    async instanceRegistration({ id, runId, threshold, resourceClass, instanceType }) {
-        coreExports.info(`Registering instance ${id} as 'running'`);
+    // WEAK & STRONG REGISTRATION
+    // WEAK: 'created', still unknown if instance has booted up OK. state of instance on initial creation, only comms initial runId and reasonable threshold
+    async instanceCreatedRegistration({ id, runId, threshold, resourceClass, instanceType }) {
+        coreExports.info(`Registering instance ${id} as 'created'`);
         // 🔍 pre-process threshold to hold standard internal isoz format
         threshold = this.getISOZDate(threshold);
         const bareInstanceStates = {
@@ -51531,13 +51686,31 @@ class InstanceOperations extends BasicOperations {
             threshold,
             resourceClass,
             instanceType,
-            // 🔍 on instance registration, immediately running state
-            // .will be changed on warm pools
-            state: 'running'
+            // 🔍 on instance created registration, immediately 'created' state
+            // .will be changed on running registration
+            state: 'created'
         };
-        // perform conditional creation? (ie. check that the item has not existed before creation)
+        // the entrance state
         const result = await this.putInstanceItem(id, bareInstanceStates, true);
         return result;
+    }
+    // STRONG: 'running', state of instance when confirmed set up.
+    // 🔍 Registers instance to running from creation
+    async instanceRunningRegistration({ id, runId, threshold }) {
+        coreExports.info(`Registering instance ${id} as 'running' (from 'created')`);
+        // 🔍 pre-process threshold to hold standard internal isoz format
+        threshold = this.getISOZDate(threshold);
+        // perform transition from 'created' to 'running'
+        await this.instanceStateTransition({
+            id,
+            expectedRunID: runId,
+            newRunID: runId,
+            expectedState: 'created',
+            newState: 'running',
+            newThreshold: threshold,
+            conditionSelectsUnexpired: true
+        });
+        return true;
     }
     // 🔍 RELEASE
     async getInstancesByRunId(runId) {
@@ -51565,13 +51738,24 @@ class InstanceOperations extends BasicOperations {
     }
     // 🔍 CORE INTERFACE FACILITATING TRANSITION
     // .Potentially used in all modes; throws errors on any failures
+    /**
+     * Transitions an instance from one state to another with run ID verification
+     *
+     * @param {object} params - The transition parameters
+     * @param {string} params.id - Instance identifier
+     * @param {string} params.expectedRunID - Run ID that must match current record
+     * @param {string} params.newRunID - New run ID to assign to the instance
+     * @param {InstanceStates} params.expectedState - Expected current state of instance
+     * @param {InstanceStates} params.newState - New state to transition to
+     * @param {string|null} params.newThreshold - New threshold value (ISO date string or if null, is current time in ISOZ)
+     * @param {boolean} params.conditionSelectsUnexpired - When true, transition only succeeds if threshold > now (unexpired)
+     *                                                   When false, transition only succeeds if threshold < now (expired)
+     *
+     * @throws {Error} Throws error when transition fails, including detailed conditional check failures
+     * @returns {Promise<void>} Resolves when transition completes successfully
+     */
     async instanceStateTransition({ id, expectedRunID, newRunID, expectedState, newState, newThreshold, conditionSelectsUnexpired = true }) {
-        coreExports.info(`
-Instance (${id}):
-  Will be transitioned from ${expectedState} to ${newState}
-  Expected run ID: ${expectedRunID || 'NONE'}
-  New run ID: ${newRunID || 'NONE'}
-  `);
+        coreExports.info(`Instance (${id}): state ${expectedState}->${newState}; runId ${expectedRunID || 'NONE'}->${newRunID || 'NONE'}; threshold ->${newThreshold}`);
         // 🔍 pre-process newThreshold to hold standard internal isoz format
         newThreshold = this.getISOZDate(newThreshold);
         const now = this.getISOZDate();
@@ -51609,9 +51793,9 @@ Instance (${id}):
             await this.client.getClient().send(command);
         }
         catch (err) {
+            coreExports.warning(`State transition failed for instance ${id}`);
             if (err.name === 'ConditionalCheckFailedException') {
                 // Inspect the failed item returned by DynamoDB
-                coreExports.warning(`State transition failed for instance ${id}`);
                 const failedItem = (await this.getGenericItem(id, true)) || {};
                 if (failedItem.state !== expectedState) {
                     coreExports.warning(`Conditional failure: state mismatch (expected=${expectedState}, actual=${failedItem.state}) 📝`);
@@ -51745,9 +51929,8 @@ class DynamoDBService {
     getGeneralMetadataOperations() {
         return new GeneralMetadataOperations(this.client);
     }
-    // fleet creation
-    getBootstrapOperations() {
-        return new BootstrapOperations(this.client);
+    getWorkerSignalOperations() {
+        return new WorkerSignalOperations(this.client);
     }
     // fleet selection/creation
     getHeartbeatOperations() {
@@ -54673,19 +54856,34 @@ async function provision(inputs) {
     // selection()
     // .given resource pool, and requirements, pickup valid instance ids
     // 📝 Will need dumping mechanism (??) - or atleast deference to creation??
-    const selectionOutput = await selection({
-        instanceCount: composedInputs.instanceCount,
-        resourceClass: composedInputs.resourceClass,
-        // 🔍 for knowing which queue to ref & requeueing
-        resourceClassConfig: composedInputs.resourceClassConfig,
-        allowedInstanceTypes: composedInputs.allowedInstanceTypes,
-        sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
-        ddbOps: {
-            instanceOperations: ddbService.getInstanceOperations(),
-            heartbeatOperations: ddbService.getHeartbeatOperations()
-        }, // ddb for: locking, etc.
-        runId
-    });
+    let selectionOutput;
+    if (process.env.DISABLE_SELECTION === 'true') {
+        selectionOutput = {
+            numInstancesSelected: 0,
+            numInstancesRequired: inputs.instanceCount,
+            instances: [],
+            labels: []
+        };
+    }
+    else {
+        selectionOutput = await selection({
+            instanceCount: composedInputs.instanceCount,
+            resourceClass: composedInputs.resourceClass,
+            // 🔍 for knowing which queue to ref & requeueing
+            resourceClassConfig: composedInputs.resourceClassConfig,
+            allowedInstanceTypes: composedInputs.allowedInstanceTypes,
+            sqsOps: sqsService.getResourceClassConfigOperations(), // sqs for: termination q; resource pools qs
+            ddbOps: {
+                instanceOperations: ddbService.getInstanceOperations(),
+                heartbeatOperations: ddbService.getHeartbeatOperations(),
+                workerSignalOperations: ddbService.getWorkerSignalOperations()
+            }, // ddb for: locking, etc.
+            ec2Ops: {
+                instanceOperations: ec2Service.getInstanceOperations()
+            },
+            runId
+        });
+    }
     // CREATION
     // creation()
     // .given what is left + constraints (cpu, mmem) + locations (subnet ids), create fleet
@@ -54699,8 +54897,9 @@ async function provision(inputs) {
             instanceOperations: ec2Service.getInstanceOperations() // 🔍 safety precaution, immediate termination on fleet failures
         },
         ddbOps: {
-            bootstrapOperations: ddbService.getBootstrapOperations(),
-            heartbeatOperations: ddbService.getHeartbeatOperations()
+            workerSignalOperations: ddbService.getWorkerSignalOperations(),
+            heartbeatOperations: ddbService.getHeartbeatOperations(),
+            instanceOperations: ddbService.getInstanceOperations()
         },
         runId
     });
@@ -54716,7 +54915,9 @@ async function provision(inputs) {
         // 🔍 for knowing which queue to ref if any resources need releasing
         resourceClassConfig: composedInputs.resourceClassConfig,
         ec2Ops: ec2Service.getInstanceOperations(),
-        ddbOps: ddbService.getInstanceOperations(),
+        ddbOps: {
+            instanceOperations: ddbService.getInstanceOperations()
+        },
         sqsOps: sqsService.getResourceClassConfigOperations()
     });
     const duration = (Date.now() - startTime) / 1000;
@@ -55955,6 +56156,326 @@ function requireSha256 () {
 var sha256Exports = requireSha256();
 var sha256 = /*@__PURE__*/getDefaultExportFromCjs(sha256Exports);
 
+// $TABLE_NAME, #INSTANCE_ID
+function emitSignal() {
+    const ent = WorkerSignalOperations.ENTITY_TYPE;
+    const col = WorkerSignalOperations.VALUE_COLUMN_NAME;
+    const functionName = 'emitSignal';
+    const script = `
+# Function to emit signal to DynamoDB
+${functionName}() {
+  local _localid="$1"
+  local _localsignal="$2"
+  local _localdate
+  local _tmpfile
+
+  _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  _tmpfile=$(mktemp /tmp/emit-signal.XXXXXX.json)
+  cat <<JSON > "$_tmpfile"
+{
+  "PK": { "S": "TYPE#${ent}" },
+  "SK": { "S": "ID#$INSTANCE_ID" },
+  "entityType": { "S": "${ent}" },
+  "identifier": { "S": "$INSTANCE_ID" },
+  "${col}": { "M": { "state": { "S": "$_localsignal" }, "runId": { "S": "$_localid" } } },
+  "updatedAt": { "S": "$_localdate" }
+}
+JSON
+  aws dynamodb put-item \\
+    --table-name "$TABLE_NAME" \\
+    --item file://"$_tmpfile"
+  rm -f "$_tmpfile"
+  echo "[$_localdate] $_localsignal for $_localid communicated to DDB..."
+}
+`;
+    return script.trim();
+}
+
+// $TABLE_NAME
+function fetchGHToken() {
+    const ent = RegistrationTokenOperations$1.ENTITY_TYPE;
+    const id = 'gh_registration_token'; // NOTE: fix magic string
+    const col = RegistrationTokenOperations$1.VALUE_COLUMN_NAME;
+    const functionName = 'fetchGHToken';
+    const script = `
+# Function to fetch GitHub registration token from DynamoDB
+${functionName}() {
+  local _localtoken
+
+  _localtoken=$(aws dynamodb get-item \\
+    --table-name "$TABLE_NAME" \\
+    --key '{ "PK": { "S" : "TYPE#${ent}" }, "SK" : { "S" : "ID#${id}" } }' \\
+    --query "Item.${col}.M.token.S" \\
+    --output text)
+
+  echo "$_localtoken"
+}
+`;
+    return script.trim();
+}
+
+function heredocAndchmod$1({ filename, script }) {
+    return `cat <<'EOF'> ${filename}
+${script}
+EOF
+chmod +x ${filename}
+`;
+}
+function downloadRunnerArtifactScript(filename, runnerVersion) {
+    const script = `#!/bin/bash
+case $(uname -m) in
+  aarch64|arm64) ARCH="arm64";;
+  amd64|x86_64)  ARCH="x64";;
+esac && export RUNNER_ARCH=$ARCH
+
+GH_RUNNER_VERSION=${runnerVersion}
+curl -O -L https://github.com/actions/runner/releases/download/v$GH_RUNNER_VERSION/actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
+tar xzf ./actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
+`;
+    return heredocAndchmod$1({ filename, script });
+}
+function userScript(filename, userScript = "echo 'Hello world'") {
+    const script = `${userScript}
+
+echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
+cat /var/log/user-data-completion.log
+`;
+    return heredocAndchmod$1({ filename, script });
+}
+
+// This function polls the Instance partition waiting for a valid runId to be assigned to
+// this instance. It blocks (continues looping) until a non-empty, non-"None"
+// runId is found. Once a valid runId is detected, it writes this ID to the provided
+// output file and releases (breaks the loop), indicating the runner has been
+// successfully registered and claimed.
+function blockRegistration() {
+    const ent = InstanceOperations.ENTITY_TYPE;
+    const functionName = 'blockRegistration';
+    const script = `
+# Function to wait for runner registration
+${functionName}() {
+  if [ $# -ne 2 ]; then
+    echo "Usage: $0 <output-file> <spin-period>" >&2
+    return 1
+  fi
+
+  local _file="$1"
+  local _sleep="$2"
+
+  while true; do
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _runid
+
+    if ! _runid=$(aws dynamodb get-item \\
+          --table-name "$TABLE_NAME" \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --consistent-read \\
+          --output text \\
+          --query 'Item.runId.S'); then
+      echo "[$_localdate] unable to fetch runId, retrying..."
+      sleep "$_sleep"
+      continue
+    fi
+
+    # Do not accept None as runId (empty output of "--output text")
+    if [ -n "$_runid" ] && [ "$_runid" != "None" ]; then
+      echo "[$_localdate] found _runid ($_runid) - writing to $_file. runner is registered/claimed. completing..."
+      echo "$_runid" > "$_file"
+      break
+    else
+      echo "[$_localdate] invalid _runid ($_runid) found. runner is not registered/claimed. retrying..."
+      sleep "$_sleep"
+      continue
+    fi  
+  done
+}
+`;
+    return script.trim();
+}
+// This function polls the Instance partition checking if the runId associated with
+// this instance differs from the provided input ID. It blocks (continues looping)
+// as long as the runId matches the input ID, and releases (breaks the loop) when
+// they differ or when the runId is removed, indicating the runner has been released.
+function blockInvalidation() {
+    const ent = InstanceOperations.ENTITY_TYPE;
+    const functionName = 'blockInvalidation';
+    const script = `
+# Function to wait for runner invalidation
+${functionName}() {
+  if [ $# -ne 2 ]; then
+    echo "Usage: $0 <id> <spin-period>" >&2
+    return 1
+  fi
+
+  local _inputid="$1"
+  local _sleep="$2"
+
+  while true; do
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _runid
+
+    if ! _runid=$(aws dynamodb get-item \\
+          --table-name "$TABLE_NAME" \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --consistent-read \\
+          --output text \\
+          --query 'Item.runId.S'); then
+      echo "[$_localdate] unable to fetch runId, retrying..."
+      sleep "$_sleep"
+      continue
+    fi
+
+    # NOTE: OK to have empty _runid - so not checking for -z
+    if [ "$_runid" != "$_inputid" ]; then
+      echo "[$_localdate] found _runid ($_runid) is != input id ($_inputid). runner released. completing..."
+      break
+    else
+      echo "[$_localdate] found _runid ($_runid) is == input id ($_inputid). runner still not released. Retrying..."
+      sleep "$_sleep"
+      continue
+    fi    
+  done
+}
+`;
+    return script.trim();
+}
+
+function heredocAndchmod({ filename, script }) {
+    return `cat <<'EOF'> ${filename}
+${script}
+EOF
+chmod +x ${filename}
+`;
+}
+const SELF_TERMINATION_FN_NAME = 'selfTermination';
+const HEARTBEAT_FN_NAME = 'heartbeat';
+function selfTermination(period = 15) {
+    const ent = InstanceOperations.ENTITY_TYPE;
+    const col = 'threshold'; // NOTE: magic string
+    const functionName = SELF_TERMINATION_FN_NAME;
+    const script = `
+# Function to monitor and self-terminate when threshold is reached
+${functionName}() {
+  local _period=${period}
+
+  while true; do
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # 1) Try fetching threshold, retry on API error
+    local _threshold
+    if ! _threshold=$(
+        aws dynamodb get-item \\
+          --table-name "$TABLE_NAME" \\
+          --key '{ "PK": { "S": "TYPE#${ent}" }, "SK": { "S": "ID#'"$INSTANCE_ID"'" } }' \\
+          --query 'Item.${col}.S' \\
+          --consistent-read \\
+          --output text
+      ); then
+      echo "[$_localdate ($$)] DynamoDB get-item failed; retrying in $_period s…" >&2
+      sleep $_period
+      continue
+    fi
+
+    echo "[$_localdate ($$)] Fetched _threshold: $_threshold"
+
+    # 2) No data yet?
+    if [ -z "$_threshold" ] || [ "$_threshold" = "None" ]; then
+      echo "[$_localdate ($$)] No _threshold recorded yet or item not available; sleeping $_period s…" >&2
+      sleep $_period
+      continue
+    fi
+
+    # 3) Add buffer and compare
+    local _buffer _now_s _tsb_s _delta_s
+    _buffer=$(date -u -d "$_threshold + 1 minute" +"%Y-%m-%dT%H:%M:%SZ")
+    _now_s=$(date -u +%s)
+    _tsb_s=$(date -u -d "$_buffer" +%s)
+    _delta_s=$(( _tsb_s - _now_s ))
+    echo "[$_localdate ($$)] Difference: $_delta_s seconds (_threshold+_buffer vs now)"
+
+    # 4) Self-terminate when due
+    if [ "$_tsb_s" -lt "$_now_s" ]; then
+      echo "[$_localdate ($$)] Deadline passed; initiating self-termination…"
+      if aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"; then
+        echo "[$_localdate ($$)] Termination API call succeeded; exiting."
+        break
+      else
+        echo "[$_localdate ($$)] Termination call failed; retrying in $_period s…" >&2
+        sleep $_period
+        continue
+      fi
+    fi
+
+    echo "[$_localdate ($$)] Not yet due; sleeping $_period s…"
+    sleep $_period
+  done
+}
+`;
+    return script.trim();
+}
+function heartbeat() {
+    const ent = HeartbeatOperations.ENTITY_TYPE;
+    const col = HeartbeatOperations.VALUE_COLUMN_NAME;
+    const state = HeartbeatOperations.STATUS.PING;
+    const period = HeartbeatOperations.PERIOD_SECONDS;
+    const functionName = HEARTBEAT_FN_NAME;
+    const script = `
+# Function to emit periodic heartbeat signals
+${functionName}() {
+  while true; do
+    local _localdate
+    _localdate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local _tmpfile
+    _tmpfile=$(mktemp /tmp/ddb-item-heartbeat.XXXXXX.json) 
+
+    cat <<JSON > "$_tmpfile"
+{
+  "PK": { "S": "TYPE#${ent}" },
+  "SK": { "S": "ID#$INSTANCE_ID" },
+  "entityType": { "S": "${ent}" },
+  "identifier": { "S": "$INSTANCE_ID" },
+  "${col}": { "S": "${state}" },
+  "updatedAt": { "S": "$_localdate" }
+}
+JSON
+    if ! aws dynamodb put-item \\
+      --table-name "$TABLE_NAME" \\
+      --item file://"$_tmpfile"; then
+      rm -f "$_tmpfile"
+      echo "[$_localdate ($$)] heartbeat failed, retrying in [${period}]s..." >&2
+      sleep ${period}
+      continue
+    fi
+    rm -f "$_tmpfile"
+    sleep ${period}
+  done
+}
+`;
+    return script.trim();
+}
+// NOTE: wrapping in executable scripts so that we can grep in ps -aux
+function selfTerminationScript(filename, period = 15) {
+    const script = `
+${selfTermination(period)}
+
+# execute function
+${SELF_TERMINATION_FN_NAME}
+`.trim();
+    return heredocAndchmod({ filename, script });
+}
+function heartbeatScript(filename) {
+    const script = `
+${heartbeat()}
+
+# execute function
+${HEARTBEAT_FN_NAME}
+`.trim();
+    return heredocAndchmod({ filename, script });
+}
+
 /* eslint-disable no-useless-escape */
 // in this file, we will take the current (user-inputted) userdata and append
 // .metadata query
@@ -55967,9 +56488,9 @@ var sha256 = /*@__PURE__*/getDefaultExportFromCjs(sha256Exports);
 // $ tail -f /var/log/user-data.log
 // $ journalctl -t user-data
 function addBuiltInScript(tableName, context, input) {
-    const { VALUE_COLUMN_NAME: BOOTSTRAP_COLUMN_NAME, ENTITY_TYPE: BOOTSTRAP_ENTITY, STATUS: BOOTSTRAP_STATUS } = BootstrapOperations;
-    const { VALUE_COLUMN_NAME: HEARTBEAT_COLUMN_NAME, ENTITY_TYPE: HEARTBEAT_ENTITY, STATUS: HEARTBEAT_STATUS, PERIOD_SECONDS: HEARTBEAT_PERIOD_SECONDS } = HeartbeatOperations;
-    const INSTANCE_ENTITY_TYPE = InstanceOperations.ENTITY_TYPE;
+    const RUNNER_VERSION = '2.323.0'; // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
+    const longS = 5;
+    const shortS = 0.25;
     // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
     const WRAPPER_SCRIPT = `#!/bin/bash
 
@@ -55977,231 +56498,140 @@ function addBuiltInScript(tableName, context, input) {
 # .redirect all logs to user-data.log
 # .create actions directory
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-mkdir -p actions-runner && cd actions-runner
-
-### USER-DEFINED METADATA
-echo "starting user data..."
-cat <<'EOF'> pre-runner-script.sh
-${input.userData}
-EOF
-
-chmod +x pre-runner-script.sh
-sudo ./pre-runner-script.sh
-echo "UserData execution completed successfully at $(date)" >> /var/log/user-data-completion.log
-cat /var/log/user-data-completion.log
+mkdir -p actions-runner && cd actions-runner || exit
 
 ### INPUTS FROM JS
-TABLE_NAME="${tableName}"
-GH_OWNER="${context.owner}"
-GH_REPO="${context.repo}"
-BOOTSTRAP_ENTITY="${BOOTSTRAP_ENTITY}"
-BOOTSTRAP_COLUMN_NAME="${BOOTSTRAP_COLUMN_NAME}"
-USERDATA_COMPLETED="${BOOTSTRAP_STATUS.USERDATA_COMPLETED}"
-USERDATA_REGISTRATION_COMPLETED="${BOOTSTRAP_STATUS.USERDATA_REGISTRATION_COMPLETED}"
-HEARTBEAT_COLUMN_NAME="${HEARTBEAT_COLUMN_NAME}"
-HEARTBEAT_ENTITY="${HEARTBEAT_ENTITY}"
-HEARTBEAT_STATE="${HEARTBEAT_STATUS.PING}"
-HEARTBEAT_PERIOD_SECONDS=${HEARTBEAT_PERIOD_SECONDS}
-INSTANCE_ENTITY_TYPE=${INSTANCE_ENTITY_TYPE}
+export TABLE_NAME="${tableName}"
+export GH_OWNER="${context.owner}"
+export GH_REPO="${context.repo}"
 
-### TEST INPUTS
-# TABLE_NAME="ci-test-partial-ci-test-partial-ec2-runner-pool-table-test"
-# BOOTSTRAP_ENTITY="BOOTSTRAP"
-# BOOTSTRAP_COLUMN_NAME="value"
-# USERDATA_COMPLETED="USERDATA_COMPLETED"
-# USERDATA_REGISTRATION_COMPLETED="USERDATA_REGISTRATION_COMPLETED"
-# HEARTBEAT_COLUMN_NAME="value"
-# HEARTBEAT_ENTITY="HEARTHBEAT"
-# HEARTBEAT_STATE="PING"
-# HEARTBEAT_PERIOD_SECONDS=5
-
-### FETCHING METADATA
+### REMAINING INITIALIZATION 
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+INITIAL_RUN_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/tags/instance/InitialRunId)
 
-echo "Successfully initialized info..."
+export INSTANCE_ID
 
-### UPDATING DDB WITH UD-COMPLETE
-DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-TMPFILE=$(mktemp /tmp/ddb-item-udcomplete.XXXXXX.json)
-cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$BOOTSTRAP_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$BOOTSTRAP_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$BOOTSTRAP_COLUMN_NAME": { "S": "$USERDATA_COMPLETED" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-aws dynamodb put-item \
-  --table-name "$TABLE_NAME" \
-  --item file://"$TMPFILE"
-rm -f "$TMPFILE"
-echo "UD completed communicated to DDB..."
+echo "Building reusables (are chmod +x); TABLE_NAME and INSTANCE_ID must be available"
+${emitSignal()}
+${fetchGHToken()}
+${blockRegistration()}
+${blockInvalidation()}
 
-### REGISTRATION ROUTINE
-GH_REGISTRATION_TOKEN=$(aws dynamodb get-item \
-  --table-name $TABLE_NAME \
-  --key '{"PK":{"S":"TYPE#METADATA"},"SK":{"S":"ID#gh_registration_token"}}' \
-  --query "Item.value.M.token.S" \
-  --output text)
+echo "Scripts (are chmod +x)"
+${heartbeatScript('heartbeat.sh')}
+${selfTerminationScript('self-termination.sh')}
+${userScript('user-script.sh', input.userData)}
+${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
 
-echo "Registering to GH..."
-case $(uname -m) in
-  aarch64|arm64) ARCH="arm64";;
-  amd64|x86_64)  ARCH="x64";;
-esac && export RUNNER_ARCH=$ARCH
-
-GH_RUNNER_VERSION=2.323.0
-curl -O -L https://github.com/actions/runner/releases/download/v$GH_RUNNER_VERSION/actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
-tar xzf ./actions-runner-linux-$RUNNER_ARCH-$GH_RUNNER_VERSION.tar.gz
-
-export RUNNER_ALLOW_RUNASROOT=1
-# EC2 Instance ID Uniqueness - https://serverfault.com/questions/58401/is-the-amazon-ec2-instance-id-unique-forever
-START_TIME=$(date +%s)
-./config.sh --url https://github.com/$GH_OWNER/$GH_REPO --name $INSTANCE_ID --token $GH_REGISTRATION_TOKEN --no-default-labels --labels $INSTANCE_ID
-CONFIG_EXIT_CODE=$?
-END_TIME=$(date +%s)
-DELTA=$((END_TIME - START_TIME))
-echo "config.sh execution time: $DELTA seconds"
-
-if [ $CONFIG_EXIT_CODE -ne 0 ]; then
-  echo "Error: GitHub Actions Runner config.sh failed with exit code $CONFIG_EXIT_CODE." >&2
-  exit $CONFIG_EXIT_CODE
+### SOME INITIALIZATION ###
+if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
+  >&2 echo "InitialRunId not added to instance tag, exiting..."
+  # TODO: Consider emitting a signal here for more info, although this is likely not to cause an issue
+  exit 1
 fi
 
-echo "GH Registration script completed..."
+### USERDATA ###
+if ! ./user-script.sh; then
+  >&2 echo "user-defined userdata unable to execute correctly. emitting signal..."
+  emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.FAILED_STATUS.UD}"
+  exit 1
+fi
 
-### UPDATING DDB WITH UD-REG COMPLETE
-DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-TMPFILE=$(mktemp /tmp/ddb-item-udreg.XXXXXX.json)
-cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$BOOTSTRAP_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$BOOTSTRAP_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$BOOTSTRAP_COLUMN_NAME": { "S": "$USERDATA_REGISTRATION_COMPLETED" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-aws dynamodb put-item \
-  --table-name "$TABLE_NAME" \
-  --item file://"$TMPFILE"
-rm -f "$TMPFILE"
-echo "UD-Registration completed communicated to DDB..."
+echo "user-defined userdata OK. emitting signal..."
+emitSignal "$INITIAL_RUN_ID" "${WorkerSignalOperations.OK_STATUS.UD}"
 
-echo "exporting variables for async scripts (heartbeat & termination)"
-export TABLE_NAME INSTANCE_ID
-export HEARTBEAT_COLUMN_NAME HEARTBEAT_ENTITY HEARTBEAT_STATE HEARTBEAT_PERIOD_SECONDS
-export INSTANCE_ENTITY_TYPE 
+### FETCH ARTIFACTS ###
+./download-runner-artifact.sh
 
-echo "Writing heartbeat script..."
-cat <<'EOF' > heartbeat.sh
-#!/bin/bash
-while true; do
-  DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TMPFILE=$(mktemp /tmp/ddb-item-heartbeat.XXXXXX.json)
-  cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$HEARTBEAT_ENTITY" },
-  "SK": { "S": "ID#$INSTANCE_ID" },
-  "entityType": { "S": "$HEARTBEAT_ENTITY" },
-  "identifier": { "S": "$INSTANCE_ID" },
-  "$HEARTBEAT_COLUMN_NAME": { "S": "$HEARTBEAT_STATE" },
-  "updatedAt": { "S": "$DATE" }
-}
-JSON
-  if ! aws dynamodb put-item \
-    --table-name "$TABLE_NAME" \
-    --item file://"$TMPFILE"; then
-    rm -f "$TMPFILE"
-    echo "[$DATE] heartbeat failed, retrying in [$HEARTBEAT_PERIOD_SECONDS]s..." >&2
-    sleep $HEARTBEAT_PERIOD_SECONDS
-    continue
-  fi
-  rm -f "$TMPFILE"
-  sleep $HEARTBEAT_PERIOD_SECONDS
-done
-EOF
-
-echo "Executing heartbeat in background..."
-chmod +x heartbeat.sh
+### SETUP BACKGROUND SCRIPTS ###
 ./heartbeat.sh &
+./self-termination.sh &
 
-echo "Writing termination script..."
-cat <<'EOF' > termination.sh
-#!/usr/bin/env bash
-INTERVAL=15
+### REGISTRATION LOOP ###
+export RUNNER_ALLOW_RUNASROOT=1 
+export RUNNER_MANUALLY_TRAP_SIG=1
 
 while true; do
-  DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TMPFILE=$(mktemp /tmp/ddb-item-instance.XXXXXX.json)
-  cat <<JSON > "$TMPFILE"
-{
-  "PK": { "S": "TYPE#$INSTANCE_ENTITY_TYPE" },
-  "SK": { "S": "ID#$INSTANCE_ID" }
-}
-JSON
+  echo "Starting registration loop..."
 
-  # 1) Try fetching threshold, retry on API error
-  if ! THRESHOLD=$(
-      aws dynamodb get-item \
-        --table-name "$TABLE_NAME" \
-        --key file://"$TMPFILE" \
-        --query 'Item.threshold.S' \
-        --consistent-read \
-        --output text
-    ); then
-    echo "[$DATE] DynamoDB get-item failed; retrying in $INTERVAL s…" >&2
-    rm -f "$TMPFILE"
-    sleep $INTERVAL
-    continue
+  # PART 0: Confirmation of new pool (! -z RECORDED)
+  _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
+  blockRegistration "$_tmpfile" "${shortS}"
+  _loop_id=$(cat "$_tmpfile")
+  rm -f "$_tmpfile"
+
+  # PART 2: Register to worker GH with valid token & emit
+  _gh_reg_token=$(fetchGHToken)
+    
+  START_TIME=$(date +%s)
+  
+  # Disable auto-updates of runner. Auto-updates MAY (not confirmed) causes further time to kill run.sh on kill -TERM runner_pid. 
+  # .TODO - consider either: parameterize gh runner version or metadata ddb fetch to avoid deprecations
+  if ! ./config.sh \\
+    --url https://github.com/$GH_OWNER/$GH_REPO \\
+    --name "$INSTANCE_ID" \\
+    --replace \\
+    --token "$_gh_reg_token" \\
+    --disableupdate \\
+    --unattended \\
+    --no-default-labels \\
+    --labels "$_loop_id"; then
+    
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REG}" 
+    >&2 echo "Unable to register worker to gh"
+    exit 1
   fi
-  rm -f "$TMPFILE"
+  
+  END_TIME=$(date +%s)
+  DELTA=$((END_TIME - START_TIME))
+  echo "config.sh execution time: $DELTA seconds"  
 
-  echo "[$DATE] Fetched threshold: $THRESHOLD"
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REG}" 
+  echo "Successfully registered worker to gh"
 
-  # 2) No data yet?
-  if [ -z "$THRESHOLD" ] || [ "$THRESHOLD" = "None" ]; then
-    echo "[$DATE] No threshold recorded yet or item not available; sleeping $INTERVAL s…" >&2
-    sleep $INTERVAL
-    continue
+  # PART 2.1: Start up Runner
+  ./run.sh & _runner_pid=$!
+  echo "Runner PID is $_runner_pid"
+
+  # PART 3: Wait for leader to indicate all jobs done (flipped runId)
+  blockInvalidation "$_loop_id" "${longS}"
+
+  # PART 4: Remove .runner if found and perform general removal  
+  # if [ -f .runner ]; then
+  #  echo "Found .runner removing..."
+  #  rm .runner
+  # else
+  #   echo "no .runner found. following tokenless ./config.sh remove may fail..."
+  # fi
+
+  echo "Performing config.sh remove..."
+  _gh_reg_token=$(fetchGHToken)
+  if ./config.sh remove --token "$_gh_reg_token"; then
+    echo "Successfully removed registration files, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG}"
+  else
+    echo "Unsuccessfully removed registration files, emitting signal..."
+    emitSignal "$_loop_id" "${WorkerSignalOperations.FAILED_STATUS.UD_REMOVE_REG}"
+    exit 1
   fi
 
-  # 3) Add buffer and compare
-  THRESHOLD_BUFFER=$(date -u -d "$THRESHOLD + 1 minute" +"%Y-%m-%dT%H:%M:%SZ")
-  NOW_S=$(date -u +%s)
-  TSB_S=$(date -u -d "$THRESHOLD_BUFFER" +%s)
-  DELTA_S=$(( TSB_S - NOW_S ))
-  echo "[$DATE] Difference: $DELTA_S seconds (threshold+buffer vs now)"
+  # Part 5: Graceful shutdown run.sh
+  echo "Shutting down run.sh and child processes..."
+  if kill -0 $_runner_pid; then
+    echo "Runner ($_runner_pid) still alive, sending kill signal and now awaiting..."
+    sudo kill -TERM $_runner_pid 
+    wait $_runner_pid
+  else
+    echo "The runner process has already been removed ($_runner_pid)"
+  fi 
 
-  # 4) Self-terminate when due
-  if [ "$TSB_S" -lt "$NOW_S" ]; then
-    echo "[$DATE] Deadline passed; initiating self-termination…"
-    if aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"; then
-      echo "[$DATE] Termination API call succeeded; exiting."
-      break
-    else
-      echo "[$DATE] Termination call failed; retrying in $INTERVAL s…" >&2
-      sleep $INTERVAL
-      continue
-    fi
-  fi
+  # EMIT OK SIGNAL HERE
+  echo "Runner removed, emitting signal..."
+  emitSignal "$_loop_id" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
 
-  echo "[$DATE] Not yet due; sleeping $INTERVAL s…"
-  sleep $INTERVAL
+  echo "Runner can safely re-register..."
 done
-EOF
-
-echo "Executing termination script in background..."
-chmod +x termination.sh
-./termination.sh &
-
-### STARTING RUNNER
-# echo "Running run.sh"
-./run.sh
 `;
     return { ...input, userData: WRAPPER_SCRIPT };
 }
@@ -56375,7 +56805,7 @@ async function manageResourceClassConfiguration(inputs) {
 async function manageTerminations(input) {
     coreExports.info('Performing instance terminations...');
     const { ddbOps, ec2Ops } = input;
-    const { instanceOperations, heartbeatOperations, bootstrapOperations } = ddbOps;
+    const { instanceOperations, heartbeatOperations, workerSignalOperations } = ddbOps;
     // 🔍 Only fetch non-terminated instances
     const items = await instanceOperations.getExpiredInstancesByStates([
         'idle',
@@ -56395,7 +56825,7 @@ async function manageTerminations(input) {
         await performArtifactCleanup({
             ids,
             heartbeatOperations,
-            bootstrapOperations
+            workerSignalOperations
         });
     }
     else {
@@ -56404,12 +56834,17 @@ async function manageTerminations(input) {
     coreExports.info('Completed instance terminations...');
 }
 async function performTerminationTransitions(instanceItems, ddbOps) {
-    const response = await Promise.allSettled(instanceItems.map((item) => ddbOps.instanceTermination({
-        id: item.identifier,
-        // 🔍 These are to guard against concurrent operations
-        expectedState: item.state,
-        expectedRunID: item.runId
-    })));
+    const response = await Promise.allSettled(instanceItems.map((item) => {
+        return ddbOps.instanceStateTransition({
+            id: item.identifier,
+            expectedState: item.state,
+            expectedRunID: item.runId,
+            newState: 'terminated',
+            newRunID: '',
+            newThreshold: null,
+            conditionSelectsUnexpired: false
+        });
+    }));
     const successfulItems = [];
     const unsuccessfulItems = [];
     response.forEach((resp, ind) => {
@@ -56450,10 +56885,10 @@ function logInstanceTerminationDiagnostics(allItems, successfulItems, unsuccessf
     coreExports.info('---------------------------------------');
 }
 async function performArtifactCleanup(inputs) {
-    const { ids, heartbeatOperations, bootstrapOperations } = inputs;
-    coreExports.info(`Performing artifact cleanup (heartbeat; bootstrap) for ${ids}`);
+    const { ids, heartbeatOperations, workerSignalOperations } = inputs;
+    coreExports.info(`Performing artifact cleanup (heartbeat; signal) for ${ids}`);
     await Promise.allSettled(ids.map((id) => heartbeatOperations.deleteItem(id)));
-    await Promise.allSettled(ids.map(async (id) => bootstrapOperations.deleteItem(id)));
+    await Promise.allSettled(ids.map(async (id) => workerSignalOperations.deleteItem(id)));
     coreExports.info(`Completed artifact cleanup`);
 }
 // NOTE: on high usage, this may be subject to API rate limits
@@ -56533,7 +56968,7 @@ async function refresh(inputs) {
         ddbOps: {
             instanceOperations: ddbService.getInstanceOperations(),
             heartbeatOperations: ddbService.getHeartbeatOperations(),
-            bootstrapOperations: ddbService.getBootstrapOperations()
+            workerSignalOperations: ddbService.getWorkerSignalOperations()
         }
     });
     const duration = (Date.now() - startTime) / 1000;
@@ -56568,17 +57003,44 @@ async function transitionToIdle(instances, runId, idleTimeSec, ddbOps) {
     return { successful, unsuccessful };
 }
 
-// Extract SQS notification logic
-async function sendToPools(instances, resourceClassConfig, sqsOps) {
-    // NOTE: this is translating what was picked up from ddb to what is sendable to sqs
-    const instanceMessages = instances.map((instance) => ({
-        id: instance.identifier,
-        resourceClass: instance.resourceClass,
-        instanceType: instance.instanceType,
-        cpu: resourceClassConfig[instance.resourceClass].cpu,
-        mmem: resourceClassConfig[instance.resourceClass].mmem
-    }));
-    await sqsOps.sendResourcesToPools(instanceMessages, resourceClassConfig);
+// release worker for safe sending to pool!
+async function releaseWorker(inputs) {
+    const { instanceItem, resourceClassConfig, runId, ddbOps, sqsOps, workerNum } = inputs;
+    const instanceId = instanceItem.identifier;
+    coreExports.info(`[WORKER ${workerNum}]Starting release worker routine. Responsible for safely releasing id ${instanceId}...`);
+    // Firstly, observe a specific ws signal (removal of reg & shutdown of runner)
+    const demandedSignal = WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN;
+    const result = await ddbOps.workerSignalOperations.pollOnSignal({
+        instanceIds: [instanceId],
+        runId,
+        signal: demandedSignal,
+        // run.sh graceful uninstallation takes about <1min. Timing out at x2
+        timeoutSeconds: 120,
+        // also interval is generous as well as blockInvalidation is long as well (cpu usage minimal when running jobs)
+        intervalSeconds: 10
+    });
+    if (result.state === true) {
+        // still OK, hence OK to be placed in the pool
+        const instanceMessage = {
+            id: instanceId,
+            resourceClass: instanceItem.resourceClass,
+            instanceType: instanceItem.instanceType,
+            cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
+            mmem: resourceClassConfig[instanceItem.resourceClass].mmem
+        };
+        await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig);
+        coreExports.info(`[WORKER ${workerNum}] Has now safely sent ${instanceId} to ${instanceItem.resourceClass} pool`);
+    }
+    else {
+        coreExports.warning(`[WORKER ${workerNum}] Unable to find the demanded signal ${demandedSignal} for ${instanceId}. See reason: ${result.message}`);
+        coreExports.warning(`[WORKER ${workerNum}] Marking ${instanceId} for expiration`);
+        await ddbOps.instanceOperations.expireInstance({
+            id: instanceId,
+            runId: '', // at this point in release, expect empty
+            state: null
+        });
+    }
+    coreExports.info(`[WORKER ${workerNum}] Release worker routine completed.`);
 }
 
 // Refactored main function
@@ -56587,29 +57049,30 @@ async function releaseResources(input) {
     const { runId, idleTimeSec, resourceClassConfig, ddbOps, sqsOps } = input;
     const errorMessages = [];
     // Get and classify instances
-    const instances = await ddbOps.getInstancesByRunId(runId);
+    const instances = await ddbOps.instanceOperations.getInstancesByRunId(runId);
     const classified = classifyInstancesByState(instances);
+    if (instances.length === 0) {
+        coreExports.warning(`No instances were found to release...`);
+        coreExports.debug(`No instances were found with runId: ${runId}`);
+        return;
+    }
     coreExports.info(`See classified instances:\n${Object.entries(classified)
         .map(([k, v]) => {
         return `- ${k}: ${v.map((v) => v.identifier)}`;
     })
         .join('\n')}`);
-    // Handle claimed instances (collect as errors but continue)
-    if (classified.claimed.length > 0) {
-        const claimedIds = classified.claimed.map((i) => i.identifier);
-        const message = `Found instances with runId ${runId} that are in 'claimed' state: ${claimedIds.join(', ')}`;
-        errorMessages.push(message);
-        coreExports.warning(message);
+    // GATHER FOR REPORTING
+    const invalidStates = ['idle'];
+    for (const state of invalidStates) {
+        if (classified[state].length > 0) {
+            const ids = classified[state].map((i) => i.identifier);
+            const message = `Found instances with runId ${runId} that are in '${state}' state: ${ids.join(', ')}`;
+            errorMessages.push(message);
+            coreExports.warning(message);
+        }
     }
-    // Handle claimed instances (collect as errors but continue)
-    if (classified.idle.length > 0) {
-        const idleIds = classified.idle.map((i) => i.identifier);
-        const message = `Found instances with runId ${runId} that are in 'idle' state: ${idleIds.join(', ')}`;
-        errorMessages.push(message);
-        coreExports.warning(message);
-    }
-    // Process running instances
-    const { successful, unsuccessful } = await transitionToIdle(classified.running, runId, idleTimeSec, ddbOps);
+    // Process ONLY 'running' instances
+    const { successful, unsuccessful } = await transitionToIdle(classified.running, runId, idleTimeSec, ddbOps.instanceOperations);
     // Handle unsuccessful transitions
     if (unsuccessful.length > 0) {
         const successfulIds = successful.map((i) => i.identifier);
@@ -56620,15 +57083,21 @@ async function releaseResources(input) {
     }
     // Continue with releasing successful instances even if there were errors
     if (successful.length > 0) {
-        coreExports.info(`Releasing ${successful.length} successfully transitioned instances to pool`);
-        await sendToPools(successful, resourceClassConfig, sqsOps);
+        coreExports.info(`Releasing ${successful.length} successfully transitioned instances. Now performing safe release...`);
+        await Promise.allSettled(successful.map((instance, ind) => {
+            return releaseWorker({
+                instanceItem: instance,
+                resourceClassConfig,
+                runId,
+                ddbOps,
+                sqsOps,
+                workerNum: ind
+            });
+        }));
     }
-    else {
-        errorMessages.push('No instances were successfully transitioned to idle state');
-    }
-    // Set the action as failed if there were any errors
+    // Instead of setting failures on presence of failures, I think OK with just setting release to always 'succeed'
     if (errorMessages.length > 0) {
-        coreExports.setFailed(`Release completed with errors 😬:\n${errorMessages.join('\n')}`);
+        coreExports.error(`Release completed with errors 😬:\n${errorMessages.join('\n')}`);
     }
     else {
         coreExports.info('Release completed successfully 🎉');
@@ -56640,7 +57109,8 @@ function classifyInstancesByState(instances) {
         idle: [],
         running: [],
         claimed: [],
-        terminated: []
+        terminated: [],
+        created: []
     };
     instances.forEach((instance) => {
         classified[instance.state].push(instance);
@@ -56658,11 +57128,14 @@ function logInstanceState(instance) {
     else if (state === 'terminated') {
         coreExports.info(`✅ Found as 'terminated' - this is OK, no further actions `);
     }
-    else if (state === 'idle') {
-        coreExports.info(`❌ Found as 'idle' - idle instances should not be found with a runId. Release will be marked for failure`);
+    else if (state === 'created') {
+        coreExports.info(`✅ Found as 'created' - This could indicate failed 'created' instances on provision-creation. That is OK - no further actions.`);
     }
     else if (state === 'claimed') {
-        coreExports.warning(`❌ Found as 'claimed' - release will be marked for failure after other resources are released`);
+        coreExports.warning(`✅ Found as 'claimed' - This could indicate failed 'claimed' instances on provision-selection. That is OK - no further actions.`);
+    }
+    else if (state === 'idle') {
+        coreExports.info(`❌ Found as 'idle' - idle instances should not be found with a runId. Release will be marked for warning`);
     }
 }
 
@@ -56683,7 +57156,10 @@ async function release(inputs) {
         resourceClassConfig,
         runId,
         idleTimeSec,
-        ddbOps: ddbService.getInstanceOperations(),
+        ddbOps: {
+            instanceOperations: ddbService.getInstanceOperations(),
+            workerSignalOperations: ddbService.getWorkerSignalOperations()
+        },
         sqsOps: sqsService.getResourceClassConfigOperations()
     });
     const duration = (Date.now() - startTime) / 1000;
@@ -56720,11 +57196,11 @@ async function cleanup(input) {
     await new Promise((r) => setTimeout(r, minutes * 60 * 1000));
     // 🔍 clear all non-metadata ddb state
     coreExports.info('Clearing ddb of instance data...');
-    coreExports.info('Clearing ddb of bootstrap & hearbeat & instance information...');
+    coreExports.info('Clearing ddb of signal & hearbeat & instance information...');
     await Promise.all([
-        await ddbService.getBootstrapOperations().clearPartition(),
         await ddbService.getHeartbeatOperations().clearPartition(),
-        await ddbService.getInstanceOperations().clearPartition()
+        await ddbService.getInstanceOperations().clearPartition(),
+        await ddbService.getWorkerSignalOperations().clearPartition()
     ]);
     coreExports.info('DDB has been cleared...');
     // 💡 clear queues

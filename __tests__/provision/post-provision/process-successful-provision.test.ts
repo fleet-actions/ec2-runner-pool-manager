@@ -19,7 +19,7 @@ const { processSuccessfulProvision } = await import(
 
 describe('processSuccessfulProvision', () => {
   let mockInput: ProcessSuccessfulProvisionInputs
-  let mockDDBOps: MockProxy<InstanceOperations>
+  let mockInstanceOperations: MockProxy<InstanceOperations>
   const generic: Instance = {
     id: 'i-generic',
     instanceType: 'c5.large',
@@ -32,11 +32,13 @@ describe('processSuccessfulProvision', () => {
     jest.clearAllMocks()
 
     // Create mock for DynamoDB operations
-    mockDDBOps = mock<InstanceOperations>()
+    mockInstanceOperations = mock<InstanceOperations>()
 
     // Setup default mock behaviors
-    mockDDBOps.instanceRegistration.mockResolvedValue(undefined as any)
-    mockDDBOps.instanceStateTransition.mockResolvedValue(undefined)
+    mockInstanceOperations.instanceRunningRegistration.mockResolvedValue(
+      undefined as any
+    )
+    mockInstanceOperations.instanceStateTransition.mockResolvedValue(undefined)
 
     // Setup input with test data
     mockInput = {
@@ -57,7 +59,7 @@ describe('processSuccessfulProvision', () => {
       },
       maxRuntimeMin: 60,
       runId: 'test-run-123',
-      ddbOps: mockDDBOps
+      ddbOps: { instanceOperations: mockInstanceOperations }
     }
   })
 
@@ -83,18 +85,24 @@ describe('processSuccessfulProvision', () => {
       const expectedThreshold = new Date(now + 3600000).toISOString()
 
       // Verify created instances are registered
-      expect(mockDDBOps.instanceRegistration).toHaveBeenCalledTimes(1)
-      expect(mockDDBOps.instanceRegistration).toHaveBeenCalledWith({
+      expect(
+        mockInstanceOperations.instanceRunningRegistration
+      ).toHaveBeenCalledTimes(1)
+      expect(
+        mockInstanceOperations.instanceRunningRegistration
+      ).toHaveBeenCalledWith({
         id: 'i-created1',
         runId: 'test-run-123',
-        threshold: expectedThreshold,
-        resourceClass: generic.resourceClass,
-        instanceType: generic.instanceType
+        threshold: expectedThreshold
       })
 
       // Verify selected instances are transitioned
-      expect(mockDDBOps.instanceStateTransition).toHaveBeenCalledTimes(2)
-      expect(mockDDBOps.instanceStateTransition).toHaveBeenCalledWith({
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).toHaveBeenCalledTimes(2)
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).toHaveBeenCalledWith({
         id: 'i-selected1',
         expectedRunID: 'test-run-123',
         newRunID: 'test-run-123',
@@ -103,7 +111,9 @@ describe('processSuccessfulProvision', () => {
         newThreshold: expectedThreshold,
         conditionSelectsUnexpired: true
       })
-      expect(mockDDBOps.instanceStateTransition).toHaveBeenCalledWith({
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).toHaveBeenCalledWith({
         id: 'i-selected2',
         expectedRunID: 'test-run-123',
         newRunID: 'test-run-123',
@@ -128,10 +138,14 @@ describe('processSuccessfulProvision', () => {
 
       await processSuccessfulProvision(mockInput)
 
-      expect(mockDDBOps.instanceRegistration).not.toHaveBeenCalled()
+      expect(
+        mockInstanceOperations.instanceRunningRegistration
+      ).not.toHaveBeenCalled()
 
       // Should still process selected instances
-      expect(mockDDBOps.instanceStateTransition).toHaveBeenCalledTimes(2)
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).toHaveBeenCalledTimes(2)
 
       // Outputs should only include selected instances
       const expectedIds = ['i-selected1', 'i-selected2']
@@ -146,9 +160,13 @@ describe('processSuccessfulProvision', () => {
       await processSuccessfulProvision(mockInput)
 
       // Should still process created instances
-      expect(mockDDBOps.instanceRegistration).toHaveBeenCalledTimes(1)
+      expect(
+        mockInstanceOperations.instanceRunningRegistration
+      ).toHaveBeenCalledTimes(1)
 
-      expect(mockDDBOps.instanceStateTransition).not.toHaveBeenCalled()
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).not.toHaveBeenCalled()
 
       // Outputs should only include created instances
       const expectedIds = ['i-created1']
@@ -160,20 +178,22 @@ describe('processSuccessfulProvision', () => {
   describe('Error Handling', () => {
     it('propagates DynamoDB registration errors', async () => {
       const error = new Error('DynamoDB registration failed')
-      mockDDBOps.instanceRegistration.mockRejectedValue(error)
+      mockInstanceOperations.instanceRunningRegistration.mockRejectedValue(
+        error
+      )
 
       await expect(processSuccessfulProvision(mockInput)).rejects.toThrow(error)
     })
 
     it('propagates DynamoDB state transition errors', async () => {
       const error = new Error('DynamoDB transition failed')
-      mockDDBOps.instanceStateTransition.mockRejectedValue(error)
+      mockInstanceOperations.instanceStateTransition.mockRejectedValue(error)
 
       await expect(processSuccessfulProvision(mockInput)).rejects.toThrow(error)
     })
 
     it('still attempts to process selected instances if created instances fail', async () => {
-      mockDDBOps.instanceRegistration.mockRejectedValueOnce(
+      mockInstanceOperations.instanceRunningRegistration.mockRejectedValueOnce(
         new Error('Registration failed')
       )
 
@@ -182,7 +202,9 @@ describe('processSuccessfulProvision', () => {
       )
 
       // Should not attempt to process selected instances or output IDs
-      expect(mockDDBOps.instanceStateTransition).not.toHaveBeenCalled()
+      expect(
+        mockInstanceOperations.instanceStateTransition
+      ).not.toHaveBeenCalled()
       expect(core.setOutput).not.toHaveBeenCalled()
     })
 

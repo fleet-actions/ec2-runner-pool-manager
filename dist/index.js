@@ -31552,6 +31552,35 @@ function enrichMerged(input) {
     return { ...input, resourceSpec };
 }
 
+// src/services/constants.ts
+const Timing = {
+    // Specific operation timeouts (in seconds)
+    HEARTBEAT_POLL_INTERVAL: 5, // heartbeat interval. Wider=better in cpu util; x= in keeping better knowledge of worker health
+    HEARTBEAT_HEALTH_TIMEOUT: 15, // Better to be >= x3 Poll timeout. 2x may be too small for DDB eventual consistency
+    // Fleet validation - to watch setup + registration of instances
+    // FLEET_VALIDATION_TIMEOUT must encompass expected OS bootup + userdata + github runner registration
+    // This looks for a specific signal that indicates successful bootup
+    FLEET_VALIDATION_TIMEOUT: 180,
+    FLEET_VALIDATION_INTERVAL: 10,
+    // Instance claim from pool - Claim timeout to watch registration status of an instance
+    // WORKER_CLAIM_TIMEOUT must encompass expected gh-registration
+    // Smaller timeout=faster selection; =but too small will likely drop valid instances while they are registering
+    // ... ./config.sh registration actually takes about ~2-3s. But blockRegistration intervals + latency push acknowledgements to about 5-6 -
+    // ... so 10s appears to be safe.
+    // ... note: this can be bad if a claim worker timesout on multiple selected instances. The provision-selection takes too long
+    WORKER_CLAIM_TIMEOUT: 10,
+    WORKER_CLAIM_INTERVAL: 0.5, // shorter=faster selection; =pollution of provision logs
+    // Release timeout - To watch successful deregistration & gh runner shutdown.
+    // WORKER_RELEASE_TIMEOUT must encompass config dereg and gh runner process shutdown
+    // ... on proper deregistration, this can take ~50-60s, on fast shutdown, this is just a few seconds.
+    // ... eitherway, interval is not as critical here
+    WORKER_RELEASE_TIMEOUT: 120,
+    WORKER_RELEASE_INTERVAL: 10,
+    // Used specifically in the registration loop
+    BLOCK_REGISTRATION_INTERVAL: 0.25,
+    BLOCK_INVALIDATION_INTERVAL: 10 // longer, the better (less cpu stress on job runs)
+};
+
 var HttpAuthLocation;
 (function (HttpAuthLocation) {
     HttpAuthLocation["HEADER"] = "header";
@@ -41395,28 +41424,26 @@ class HeartbeatOperations extends BasicValueOperations {
         PING: 'PING'
     };
     static ENTITY_TYPE = 'HEARTBEAT';
-    static PERIOD_SECONDS = 5;
+    static POLL_INTERVAL = Timing.HEARTBEAT_POLL_INTERVAL;
+    static HEALTH_TIMEOUT = Timing.HEARTBEAT_HEALTH_TIMEOUT;
     static HEALTHY = 'healthy';
     static UNHEALTHY = 'unhealthy';
     static MISSING = 'missing';
     maxAgeMs;
-    maxAgePeriodMultiplier;
     _registeredInstanceIds = [];
     _instanceHealth = {
         [HeartbeatOperations.HEALTHY]: [],
         [HeartbeatOperations.UNHEALTHY]: [],
         [HeartbeatOperations.MISSING]: []
     };
-    constructor(client, maxAgePeriodMultiplier = null) {
+    constructor(client) {
         super(HeartbeatOperations.ENTITY_TYPE, null, client);
         // NOTE: this needs to be greater:
         // - if time diff between GHA machines and AWS machines (in specific region) are large
         // - if getItems routine takes too long (Promise.allSettled under the hood). We want timestamp to get calculated separately!
         // - hence, default window is x3 for the heartbeat period
         // - accounting for ddb's eventual consistency, x2 is too tight
-        this.maxAgePeriodMultiplier = maxAgePeriodMultiplier || 3;
-        this.maxAgeMs =
-            HeartbeatOperations.PERIOD_SECONDS * this.maxAgePeriodMultiplier * 1000;
+        this.maxAgeMs = HeartbeatOperations.HEALTH_TIMEOUT * 1000;
     }
     // Check if a timestamp is fresh enough
     getTimestampAge(timestamp) {
@@ -41455,8 +41482,7 @@ class HeartbeatOperations extends BasicValueOperations {
      * @param timeoutSeconds Total time to wait in seconds.
      * @param intervalSeconds Interval between polls in seconds.
      */
-    async areAllInstancesHealthyPoll(instanceIds, timeoutSeconds = HeartbeatOperations.PERIOD_SECONDS *
-        this.maxAgePeriodMultiplier, intervalSeconds = HeartbeatOperations.PERIOD_SECONDS) {
+    async areAllInstancesHealthyPoll(instanceIds, timeoutSeconds = HeartbeatOperations.HEALTH_TIMEOUT, intervalSeconds = HeartbeatOperations.POLL_INTERVAL) {
         try {
             // register instances
             await this.registerInstancesForHealthCheck(instanceIds);
@@ -41943,8 +41969,8 @@ async function demandWsRegisteredStatus({ id, runId, ddbOps, workerNum }) {
         instanceIds: [id],
         runId,
         signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-        timeoutSeconds: 10, // watch this closely if this is too tight
-        intervalSeconds: 1
+        timeoutSeconds: Timing.WORKER_CLAIM_TIMEOUT,
+        intervalSeconds: Timing.WORKER_CLAIM_INTERVAL
     });
     coreExports.info(`[CLAIM WORKER ${workerNum}] For id:(${id}) runId:(${runId}) - ${result.message}`);
     return result.state;
@@ -42418,8 +42444,8 @@ async function checkWSStatus(currentStatus, runId, instanceIds, workerOperations
         instanceIds,
         runId,
         signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-        timeoutSeconds: 3 * 60, // timeout after
-        intervalSeconds: 10 // check every
+        timeoutSeconds: Timing.FLEET_VALIDATION_TIMEOUT,
+        intervalSeconds: Timing.FLEET_VALIDATION_INTERVAL
     });
     if (!wsstatus.state) {
         coreExports.error(`fleet validation failed: not all instances have booted up to an OK state. See message: ${wsstatus.message}\n`);
@@ -56351,10 +56377,11 @@ chmod +x ${filename}
 }
 const SELF_TERMINATION_FN_NAME = 'selfTermination';
 const HEARTBEAT_FN_NAME = 'heartbeat';
-function selfTermination(period = 15) {
+function selfTermination() {
     const ent = InstanceOperations.ENTITY_TYPE;
     const col = 'threshold'; // NOTE: magic string
     const functionName = SELF_TERMINATION_FN_NAME;
+    const period = HeartbeatOperations.HEALTH_TIMEOUT;
     const script = `
 # Function to monitor and self-terminate when threshold is reached
 ${functionName}() {
@@ -56420,7 +56447,7 @@ function heartbeat() {
     const ent = HeartbeatOperations.ENTITY_TYPE;
     const col = HeartbeatOperations.VALUE_COLUMN_NAME;
     const state = HeartbeatOperations.STATUS.PING;
-    const period = HeartbeatOperations.PERIOD_SECONDS;
+    const period = HeartbeatOperations.POLL_INTERVAL;
     const functionName = HEARTBEAT_FN_NAME;
     const script = `
 # Function to emit periodic heartbeat signals
@@ -56457,9 +56484,9 @@ JSON
     return script.trim();
 }
 // NOTE: wrapping in executable scripts so that we can grep in ps -aux
-function selfTerminationScript(filename, period = 15) {
+function selfTerminationScript(filename) {
     const script = `
-${selfTermination(period)}
+${selfTermination()}
 
 # execute function
 ${SELF_TERMINATION_FN_NAME}
@@ -56542,8 +56569,6 @@ ${functionName}() {
 // $ journalctl -t user-data
 function addBuiltInScript(tableName, context, input) {
     const RUNNER_VERSION = '2.323.0'; // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
-    const longS = 5;
-    const shortS = 0.25;
     // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
     const WRAPPER_SCRIPT = `#!/bin/bash
 
@@ -56614,7 +56639,7 @@ while true; do
 
   # PART 0: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  blockRegistration "$_tmpfile" "${shortS}"
+  blockRegistration "$_tmpfile" "${Timing.BLOCK_REGISTRATION_INTERVAL}"
   LOOP_ID=$(cat "$_tmpfile")
   rm -f "$_tmpfile"
 
@@ -56652,12 +56677,13 @@ while true; do
   LOOP_RUN_PID=$!
 
   # PART 3: Wait for leader to indicate all jobs done (flipped runId)
-  blockInvalidation "$LOOP_ID" "${longS}"
+  blockInvalidation "$LOOP_ID" "${Timing.BLOCK_INVALIDATION_INTERVAL}"
 
-  # PART 4: Deregistration
+  # PART 4: Deregistration 
+  # NOTE: Use properDeregistration issues encountered, but will half capacity (1000->500 runner/hr)
+  # https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/usage-limits-for-self-hosted-runners
   tokenlessDeregistration
   
-
   # EMIT OK SIGNAL HERE
   echo "Runner removed, emitting signal..."
   emitSignal "$LOOP_ID" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"
@@ -57046,10 +57072,8 @@ async function releaseWorker(inputs) {
         instanceIds: [instanceId],
         runId,
         signal: demandedSignal,
-        // run.sh graceful uninstallation takes about <1min. Timing out at x2
-        timeoutSeconds: 120,
-        // also interval is generous as well as blockInvalidation is long as well (cpu usage minimal when running jobs)
-        intervalSeconds: 10
+        timeoutSeconds: Timing.WORKER_RELEASE_TIMEOUT,
+        intervalSeconds: Timing.WORKER_RELEASE_INTERVAL
     });
     if (result.state === true) {
         // still OK, hence OK to be placed in the pool

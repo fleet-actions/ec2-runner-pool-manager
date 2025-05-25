@@ -1,6 +1,7 @@
 /* eslint-disable no-useless-escape */
 import * as core from '@actions/core'
 import sha256 from 'crypto-js/sha256.js'
+import { Timing } from '../../../services/constants.js'
 import { LTDatav2 } from '../../../services/types.js'
 import { GitHubContext } from '../../../services/types.js'
 import { WorkerSignalOperations } from '../../../services/dynamodb/operations/signal-operations.js'
@@ -30,8 +31,6 @@ export function addBuiltInScript(
   input: LTDatav2
 ): LTDatav2 {
   const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
-  const longS = 5
-  const shortS = 0.25
 
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
@@ -103,7 +102,7 @@ while true; do
 
   # PART 0: Confirmation of new pool (! -z RECORDED)
   _tmpfile=$(mktemp /tmp/ddb-item-runid.XXXXXX.json)  
-  blockRegistration "$_tmpfile" "${shortS}"
+  blockRegistration "$_tmpfile" "${Timing.BLOCK_REGISTRATION_INTERVAL}"
   LOOP_ID=$(cat "$_tmpfile")
   rm -f "$_tmpfile"
 
@@ -141,12 +140,13 @@ while true; do
   LOOP_RUN_PID=$!
 
   # PART 3: Wait for leader to indicate all jobs done (flipped runId)
-  blockInvalidation "$LOOP_ID" "${longS}"
+  blockInvalidation "$LOOP_ID" "${Timing.BLOCK_INVALIDATION_INTERVAL}"
 
-  # PART 4: Deregistration
+  # PART 4: Deregistration 
+  # NOTE: Use properDeregistration issues encountered, but will half capacity (1000->500 runner/hr)
+  # https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/usage-limits-for-self-hosted-runners
   tokenlessDeregistration
   
-
   # EMIT OK SIGNAL HERE
   echo "Runner removed, emitting signal..."
   emitSignal "$LOOP_ID" "${WorkerSignalOperations.OK_STATUS.UD_REMOVE_REG_REMOVE_RUN}"

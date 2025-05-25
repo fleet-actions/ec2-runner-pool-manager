@@ -18,10 +18,11 @@ chmod +x ${filename}
 const SELF_TERMINATION_FN_NAME = 'selfTermination'
 const HEARTBEAT_FN_NAME = 'heartbeat'
 
-function selfTermination(period = 15) {
+function selfTermination() {
   const ent = InstanceOperations.ENTITY_TYPE
   const col = 'threshold' // NOTE: magic string
   const functionName = SELF_TERMINATION_FN_NAME
+  const period = HeartbeatOperations.HEALTH_TIMEOUT
 
   const script = `
 # Function to monitor and self-terminate when threshold is reached
@@ -90,7 +91,7 @@ function heartbeat() {
   const ent = HeartbeatOperations.ENTITY_TYPE
   const col = HeartbeatOperations.VALUE_COLUMN_NAME
   const state = HeartbeatOperations.STATUS.PING
-  const period = HeartbeatOperations.PERIOD_SECONDS
+  const period = HeartbeatOperations.POLL_INTERVAL
   const functionName = HEARTBEAT_FN_NAME
 
   const script = `
@@ -143,9 +144,9 @@ done
 
 // NOTE: wrapping in executable scripts so that we can grep in ps -aux
 
-export function selfTerminationScript(filename: string, period = 15) {
+export function selfTerminationScript(filename: string) {
   const script = `
-${selfTermination(period)}
+${selfTermination()}
 
 # execute function
 ${SELF_TERMINATION_FN_NAME}

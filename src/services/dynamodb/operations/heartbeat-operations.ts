@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { DynamoDBClient } from '../dynamo-db-client.js'
+import { Timing } from '../../constants.js'
 import { BasicValueOperations } from './basic-operations.js'
 import { createWaiter, WaiterState, WaiterResult } from '@smithy/util-waiter'
 
@@ -20,13 +21,13 @@ export class HeartbeatOperations extends BasicValueOperations<string> {
     PING: 'PING'
   }
   static readonly ENTITY_TYPE = 'HEARTBEAT'
-  static readonly PERIOD_SECONDS = 5
+  static readonly POLL_INTERVAL = Timing.HEARTBEAT_POLL_INTERVAL
+  static readonly HEALTH_TIMEOUT = Timing.HEARTBEAT_HEALTH_TIMEOUT
   static readonly HEALTHY = 'healthy'
   static readonly UNHEALTHY = 'unhealthy'
   static readonly MISSING = 'missing'
 
   private maxAgeMs: number
-  private maxAgePeriodMultiplier: number
   private _registeredInstanceIds: string[] = []
   private _instanceHealth: InstanceHealth = {
     [HeartbeatOperations.HEALTHY]: [],
@@ -34,10 +35,7 @@ export class HeartbeatOperations extends BasicValueOperations<string> {
     [HeartbeatOperations.MISSING]: []
   }
 
-  constructor(
-    client: DynamoDBClient,
-    maxAgePeriodMultiplier: number | null = null
-  ) {
+  constructor(client: DynamoDBClient) {
     super(HeartbeatOperations.ENTITY_TYPE, null, client)
 
     // NOTE: this needs to be greater:
@@ -45,9 +43,7 @@ export class HeartbeatOperations extends BasicValueOperations<string> {
     // - if getItems routine takes too long (Promise.allSettled under the hood). We want timestamp to get calculated separately!
     // - hence, default window is x3 for the heartbeat period
     // - accounting for ddb's eventual consistency, x2 is too tight
-    this.maxAgePeriodMultiplier = maxAgePeriodMultiplier || 3
-    this.maxAgeMs =
-      HeartbeatOperations.PERIOD_SECONDS * this.maxAgePeriodMultiplier * 1000
+    this.maxAgeMs = HeartbeatOperations.HEALTH_TIMEOUT * 1000
   }
 
   // Check if a timestamp is fresh enough
@@ -98,9 +94,8 @@ export class HeartbeatOperations extends BasicValueOperations<string> {
    */
   async areAllInstancesHealthyPoll(
     instanceIds: string[],
-    timeoutSeconds: number = HeartbeatOperations.PERIOD_SECONDS *
-      this.maxAgePeriodMultiplier,
-    intervalSeconds: number = HeartbeatOperations.PERIOD_SECONDS
+    timeoutSeconds: number = HeartbeatOperations.HEALTH_TIMEOUT,
+    intervalSeconds: number = HeartbeatOperations.POLL_INTERVAL
   ): Promise<{ state: boolean; message: string }> {
     try {
       // register instances

@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { Timing } from '../../services/constants.js'
 import { PoolPickUpManager } from './pool-pickup-manager.js'
 import { Instance } from '../types.js'
 import { InstanceOperations as DDBInstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
@@ -194,8 +195,8 @@ export async function demandWsRegisteredStatus({
     instanceIds: [id],
     runId,
     signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-    timeoutSeconds: 10, // watch this closely if this is too tight
-    intervalSeconds: 1
+    timeoutSeconds: Timing.WORKER_CLAIM_TIMEOUT,
+    intervalSeconds: Timing.WORKER_CLAIM_INTERVAL
   })
 
   core.info(

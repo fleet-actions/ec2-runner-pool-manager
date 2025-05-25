@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { Timing } from '../../services/constants.js'
 import type { FleetResult, FleetStates } from '../types.js'
 import type { HeartbeatOperations } from '../../services/dynamodb/operations/heartbeat-operations.js'
 import { WorkerSignalOperations } from '../../services/dynamodb/operations/signal-operations.js'
@@ -75,8 +76,8 @@ export async function checkWSStatus(
     instanceIds,
     runId,
     signal: WorkerSignalOperations.OK_STATUS.UD_REG,
-    timeoutSeconds: 3 * 60, // timeout after
-    intervalSeconds: 10 // check every
+    timeoutSeconds: Timing.FLEET_VALIDATION_TIMEOUT,
+    intervalSeconds: Timing.FLEET_VALIDATION_INTERVAL
   })
 
   if (!wsstatus.state) {

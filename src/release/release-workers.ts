@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { Timing } from '../services/constants.js'
 import {
   InstanceItem,
   InstanceOperations
@@ -44,10 +45,8 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
     instanceIds: [instanceId],
     runId,
     signal: demandedSignal,
-    // run.sh graceful uninstallation takes about <1min. Timing out at x2
-    timeoutSeconds: 120,
-    // also interval is generous as well as blockInvalidation is long as well (cpu usage minimal when running jobs)
-    intervalSeconds: 10
+    timeoutSeconds: Timing.WORKER_RELEASE_TIMEOUT,
+    intervalSeconds: Timing.WORKER_RELEASE_INTERVAL
   })
 
   if (result.state === true) {

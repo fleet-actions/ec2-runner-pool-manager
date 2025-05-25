@@ -41675,6 +41675,9 @@ class WorkerSignalOperations extends BasicValueOperations {
     // Convenience method to see if either UD or UD_REG (not restricted to UD only)
     async allCompletedOnSignal(ids, runId, signal) {
         coreExports.debug(`Received: ids ${ids}; runId: ${runId}, signal: ${signal}`);
+        if (ids.length === 0) {
+            throw new Error('There are no instances/ids to look for a signal');
+        }
         // first, validate the demanded signal
         const allStatuses = [
             ...Object.values(WorkerSignalOperations.OK_STATUS),
@@ -41724,7 +41727,13 @@ class WorkerSignalOperations extends BasicValueOperations {
             const checkFn = async () => {
                 try {
                     let result;
-                    if (instanceIds.length === 1) {
+                    if (instanceIds.length <= 0) {
+                        return {
+                            state: WaiterState.FAILURE,
+                            reason: new Error('Received no instances to poll')
+                        };
+                    }
+                    else if (instanceIds.length === 1) {
                         result = await this.singleCompletedOnSignal(instanceIds[0], runId, signal);
                     }
                     else {

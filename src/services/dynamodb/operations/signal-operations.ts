@@ -120,6 +120,11 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     signal: string
   ): Promise<Status> {
     core.debug(`Received: ids ${ids}; runId: ${runId}, signal: ${signal}`)
+
+    if (ids.length === 0) {
+      throw new Error('There are no instances/ids to look for a signal')
+    }
+
     // first, validate the demanded signal
     const allStatuses = [
       ...Object.values(WorkerSignalOperations.OK_STATUS),
@@ -186,7 +191,13 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
       const checkFn = async (): Promise<WaiterResult> => {
         try {
           let result: Status
-          if (instanceIds.length === 1) {
+
+          if (instanceIds.length <= 0) {
+            return {
+              state: WaiterState.FAILURE,
+              reason: new Error('Received no instances to poll')
+            }
+          } else if (instanceIds.length === 1) {
             result = await this.singleCompletedOnSignal(
               instanceIds[0],
               runId,

@@ -1,4 +1,4 @@
-# ⚡ Scale & ♻️ Reuse Self-hosted EC2 Runners within GitHub Actions 
+# Scale & Reuse Self-hosted EC2 Runners within GitHub Actions 🚀♻️
 
 <img width="669" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
 

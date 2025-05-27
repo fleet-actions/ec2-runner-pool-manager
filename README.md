@@ -1,6 +1,6 @@
 # Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions
 
-<img width="669" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
+<img width="1225" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
 
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
@@ -39,11 +39,12 @@ lifecycle management.
 
 ## 🔍 How does it work?
 
-<img width="766" alt="image" src="https://github.com/user-attachments/assets/4acdf0a1-1eb3-4e24-befb-aa8afc871021" />
+<img width="1225" alt="image" src="https://github.com/user-attachments/assets/edac8c92-2118-4c73-bb9d-49e7b210dd29" />
 
 ## 🛠️ Modes of Operation
 
-The action operates in three distinct modes:
+The action operates in THREE distinct modes (`provision`/`release`/`refresh`):
+<img width="1225" alt="image" src="https://github.com/user-attachments/assets/f70bd492-1638-44c4-96bd-957d8e2529c0" />
 
 1. **`provision`**: Allocates EC2 instances from the pool (or creates new ones
    if needed) workflow jobs. Use runners with: `runs-on: ${{ github.run_id }}`.
@@ -52,8 +53,8 @@ The action operates in three distinct modes:
    mode is intended to be run on a schedule (e.g., via cron) to:
    - Update the Launch Template with the latest AMI or configuration.
    - Refresh GitHub registration tokens.
-   - Terminate instances that have exceeded maximum runtime or idle time.
-   - Ensure a minimum number of idle runners are available
+   - Terminate instances that have exceeded maximum runtime or idle time (thought instances themselves can safely self-terminate)
+  
 
 ## ⚙️ Prerequisites
 

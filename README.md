@@ -1,5 +1,7 @@
 # Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions
 
+<img width="669" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
+
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
 
 This GitHub Action enables you to provision and reuse self-hosted EC2 runners

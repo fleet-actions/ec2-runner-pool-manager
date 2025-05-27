@@ -19,7 +19,7 @@ runner lifetimes directly within GitHub Actions, avoiding the complexities of:
 Inspired by powerful tools like
 [Actions Runner Controller](https://github.com/actions/actions-runner-controller),
 [terraform-aws-github-runner](https://github.com/github-aws-runners/terraform-aws-github-runner),
-and [ec2-github-runner](https://github.com/machulav/ec2-github-runner), this
+and [machulav/ec2-github-runner](https://github.com/machulav/ec2-github-runner), this
 action explores streamlined, YAML-centric approach to runner pooling and
 lifecycle management.
 
@@ -36,6 +36,8 @@ lifecycle management.
     pool?
 
 ## 🔍 How does it work?
+
+<img width="1124" alt="image" src="https://github.com/user-attachments/assets/d78ead1a-8176-4266-9c94-eb67f5ca2fe9" />
 
 ## 🛠️ Modes of Operation
 

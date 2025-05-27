@@ -39,7 +39,7 @@ lifecycle management.
 
 ## 🔍 How does it work?
 
-<img width="1124" alt="image" src="https://github.com/user-attachments/assets/d78ead1a-8176-4266-9c94-eb67f5ca2fe9" />
+<img width="766" alt="image" src="https://github.com/user-attachments/assets/4acdf0a1-1eb3-4e24-befb-aa8afc871021" />
 
 ## 🛠️ Modes of Operation
 

@@ -1,14 +1,41 @@
-# Scale & Reuse Self-hosted EC2 Runners for GitHub Actions
-
-This action enables dynamic resource pooling and a native control plane for
-self-hosted EC2 runners, offering:
-
-- **Resource Pooling:** Workflows share a common resource pool - efficiently
-  reusing provisioned compute resources.
-- **Native Control Plane:** Operates with minimal infrastructure, requiring no
-  external schedulers or controllers.
+# Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions
 
 [![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
+
+This GitHub Action enables you to provision and reuse self-hosted EC2 runners
+with a simple/native controlplane.
+
+## ⚡️ Motivation
+
+This project was born from a desire to simplify the management of self-hosted
+runners. The goal was to dynamically provision, pool, reuse, and safely control
+runner lifetimes directly within GitHub Actions, avoiding the complexities of:
+
+- Deploying and managing separate control planes.
+- Configuring webhooks.
+- Sifting through logs in external cloud providers, when GitHub Actions offers
+  far more accessible runner logs.
+
+Inspired by powerful tools like
+[Actions Runner Controller](https://github.com/actions/actions-runner-controller),
+[terraform-aws-github-runner](https://github.com/github-aws-runners/terraform-aws-github-runner),
+and [ec2-github-runner](https://github.com/machulav/ec2-github-runner), this
+action explores streamlined, YAML-centric approach to runner pooling and
+lifecycle management.
+
+## ✨ Features
+
+- Declaratively specify number of runners to provision for a workflow.
+- Any provisioned runners are placed in a shared pool for other workflows to
+  pick up.
+- Minimize paying for cold-starts by reusing existing runners
+- Native Control Plane in Github Actions for transparent runner logs:
+  - See which instances are terminated, selected or created for a workflow.
+- Declaratively specify lifetimes of runners
+  - i.e., how long should a runner keep itself alive when put in the shared
+    pool?
+
+## 🔍 How does it work?
 
 ## 🛠️ Modes of Operation
 
@@ -28,15 +55,16 @@ The action operates in three distinct modes:
 
 - **AWS Credentials:** Configure AWS credentials (e.g., via
   `aws-actions/configure-aws-credentials`) with permissions to manage EC2
-  instances, Launch Templates, IAM roles, and potentially other related
-  services.
-- **GitHub Token (for `refresh` mode):** A GitHub Personal Access Token (PAT)
-  with `repo` scope is required for the `refresh` mode to register runners with
-  GitHub. Store this as a secret.
+  instances, Launch Templates, IAM roles, SQS, DynamoDB.
+- **GitHub Personal Access Token (for `refresh` mode):** A GitHub PAT with
+  `repo` scope is required for the `refresh` mode to register runners with
+  GitHub.
+- **AWS Infrastructure:** Need available ec2 instance profile, subnet/s and
+  security group/s.
 
-## 🚀 Usage Examples
+## 🚀 QuickStart
 
-### 1. Provisioning and Releasing Runners in a Workflow
+### 1. Provision and Release Runners in a Workflow
 
 This example demonstrates provisioning runners that subsequent jobs can use by
 targeting `github.run_id`.
@@ -47,8 +75,8 @@ name: CI
 on: [push]
 
 jobs:
-  provision_runners: # selects
-    name: Provision
+  provision_runners:
+    name: Pickup Or Create
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS Credentials
@@ -67,22 +95,19 @@ jobs:
   matrix_job_on_ec2:
     name: Run Matrix Job on EC2
     needs: provision_runners
-    runs-on: ${{ github.run_id }} # use compute by referencing run id
+    runs-on: ${{ github.run_id }} # pickup compute via runId
     strategy:
       matrix:
         task_id: [1, 2]
     steps:
       - run: |
           echo "Running task ${{ matrix.task_id }}..."
-          # Ensure your runner's pre-runner script or AMI has necessary tools
           sleep 20 # Simulate work for this task
 
-  release_runners: # so other workflows can use compute
-    name: Release
+  release_runners:
+    name: Release For Reuse
     runs-on: ubuntu-latest
-    needs:
-      - provision_runners
-      - matrix_job
+    needs: [provision_runners, matrix_job]
     if: ${{ always() }}
     steps:
       - name: Configure AWS Credentials
@@ -106,31 +131,31 @@ name: Refresh EC2 Runner Pool
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Example: Every 30 minutes
-  workflow_dispatch: # Allows manual triggering
+    - cron: '*/15 * * * *' # OK as long as cron exeuctes 2-3x an hour
+  workflow_dispatch: # Manually trigger whenever to get started
 
 jobs:
   refresh_pool:
-    name: Refresh Runner Pool
+    name: Initialize Infra & Keep Tokens Fresh
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_REFRESH }} # Use dedicated credentials if needed
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_FOR_REFRESH }}
           aws-secret-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_FOR_REFRESH }}
-          aws-region: us-east-1 # Or your desired region
+          aws-region: us-east-1
       - name: Refresh EC2 Runner Pool
-        uses: <your-github-username>/ec2-runner-pool-manager@v1 # Replace with your action name
+        uses: <your-github-username>/ec2-runner-pool-manager@v1
         with:
           mode: refresh
           github-token: ${{ secrets.GH_PAT_FOR_RUNNERS }}
-          ami: ami-xxxxxxxxxxxxxxxxx # Specify your latest AMI ID
+          ami: ami-123 # Specify your latest AMI ID
           iam-instance-profile: YourInstanceProfileName
-          security-group-ids: sg-xxxxxxxxxxxxxxxxx sg-yyyyyyyyyyyyyyyyy
-          subnet-ids: subnet-aaaaaaaaaaaaaaaaa subnet-bbbbbbbbbbbbbbbbb
+          security-group-ids: sg-123
+          subnet-ids: subnet-123 subnet-456
           # Add other refresh-specific inputs as needed
-          # e.g., idle-time-sec, max-runtime-min, resource-class-config
+          # See👇
 ```
 
 ## 📋 Inputs
@@ -138,7 +163,7 @@ jobs:
 The following inputs are available for the action. Some are common, while others
 are mode-specific.
 
-### Common Inputs (All Modes)
+### Common Inputs (All Modes - `provision`/`release`/`refresh`)
 
 | Input        | Description                                       | Required | Default     |
 | ------------ | ------------------------------------------------- | -------- | ----------- |
@@ -180,9 +205,8 @@ are mode-specific.
 
 ### `release` Mode Inputs
 
-The `release` mode implicitly targets runners associated with the current
-`github.run_id`. No specific inputs beyond the common ones are typically
-required for identification.
+No inputs required - this is by design to minimize YAML! Releases resources
+based on workflow's runId.
 
 ---
 

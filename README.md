@@ -1,4 +1,4 @@
-# Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions
+# Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions 🚀♻️
 
 <img width="1225" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
 
@@ -21,8 +21,8 @@ runner lifetimes directly within GitHub Actions, avoiding the complexities of:
 Inspired by powerful tools like
 [Actions Runner Controller](https://github.com/actions/actions-runner-controller),
 [terraform-aws-github-runner](https://github.com/github-aws-runners/terraform-aws-github-runner),
-and [machulav/ec2-github-runner](https://github.com/machulav/ec2-github-runner), this
-action explores streamlined, YAML-centric approach to runner pooling and
+and [machulav/ec2-github-runner](https://github.com/machulav/ec2-github-runner),
+this action explores streamlined, YAML-centric approach to runner pooling and
 lifecycle management.
 
 ## ✨ Features
@@ -53,8 +53,8 @@ The action operates in THREE distinct modes (`provision`/`release`/`refresh`):
    mode is intended to be run on a schedule (e.g., via cron) to:
    - Update the Launch Template with the latest AMI or configuration.
    - Refresh GitHub registration tokens.
-   - Terminate instances that have exceeded maximum runtime or idle time (thought instances themselves can safely self-terminate)
-  
+   - Terminate instances that have exceeded maximum runtime or idle time
+     (thought instances themselves can safely self-terminate)
 
 ## ⚙️ Prerequisites
 

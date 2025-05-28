@@ -31,6 +31,7 @@ lifecycle management.
 - Any provisioned runners are placed in a shared pool for other workflows to
   pick up.
 - Minimize paying for cold-starts by reusing existing runners
+- Single runs_on syntax for all tests `runs_on: ${{ github.run_id }}`
 - Native Control Plane in Github Actions for transparent runner logs:
   - See which instances are terminated, selected or created for a workflow.
 - Declaratively specify lifetimes of runners
@@ -44,27 +45,34 @@ lifecycle management.
 ## 🛠️ Modes of Operation
 
 The action operates in THREE distinct modes (`provision`/`release`/`refresh`):
-<img width="1225" alt="image" src="https://github.com/user-attachments/assets/f70bd492-1638-44c4-96bd-957d8e2529c0" />
 
 1. **`provision`**: Allocates EC2 instances from the pool (or creates new ones
-   if needed) workflow jobs. Use runners with: `runs-on: ${{ github.run_id }}`.
+   if needed) workflow jobs. 
+   - ✏️ Simply specify amount of instances required for workflow 
+     (ex. `instance-count: 10`)
+   - ✏️ Use runners with: `runs-on: ${{ github.run_id }}`.
 2. **`release`**: Returns the used EC2 instances to the pool for re-use.
 3. **`refresh`**: Manages general configuration of the EC2 runner pool. This
    mode is intended to be run on a schedule (e.g., via cron) to:
-   - Update the Launch Template with the latest AMI or configuration.
-   - Refresh GitHub registration tokens.
-   - Terminate instances that have exceeded maximum runtime or idle time
-     (thought instances themselves can safely self-terminate)
+   - ☁️ Create infrastructure (DynamoDB, SQS) & initialize shared metadata
+   - ♻️ Continually propagate any changes to the Launch Template (AMI, SG, 
+     user-data) or shared metadata (subnets, lifetimes)
+   - ♻️ Refresh GitHub registration tokens.
+   - ⚡ Cleanup any long-living instances - just in case instances fail to
+     safely self-terminate and become orphaned
+
+<img width="1225" alt="image" src="https://github.com/user-attachments/assets/f70bd492-1638-44c4-96bd-957d8e2529c0" />
 
 ## ⚙️ Prerequisites
 
 - **AWS Credentials:** Configure AWS credentials (e.g., via
   `aws-actions/configure-aws-credentials`) with permissions to manage EC2
-  instances, Launch Templates, IAM roles, SQS, DynamoDB.
+  instances, Launch Templates, IAM roles, SQS, DynamoDB. 
+  (See below for minimum credentials)
 - **GitHub Personal Access Token (for `refresh` mode):** A GitHub PAT with
   `repo` scope is required for the `refresh` mode to register runners with
   GitHub.
-- **AWS Infrastructure:** Need available ec2 instance profile, subnet/s and
+- **AWS Infrastructure:** Need ec2 instance profile, subnet/s and
   security group/s.
 
 ## 🚀 QuickStart
@@ -212,6 +220,80 @@ are mode-specific.
 
 No inputs required - this is by design to minimize YAML! Releases resources
 based on workflow's runId.
+
+## 🔑 Minimum Permissions
+There are two main iam entities that you need to create. Here are the minimum
+required permissions for:
+1. Three Actions modes: `refresh`/`provision`/`release`
+2. ec2 instance profile
+
+### Permission for the Three Action Modes
+TODO: this needs to be refined
+- DynamoDB: Need to describe, create, read and write
+- SQS: Need to describe, create, read and write
+- EC2: Create fleet, terminate intances, create tags
+- Launch Templates: Create and update launch templates
+- IAM: Pass instance profile to LaunchTemplate
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "dynamodb:*",
+        "sqs:*",
+      ],
+      "Effect": "Allow",
+      "Resource": "fleet-actions-*"
+    },
+    {
+      "Action": [
+        "ec2:*", 
+      ],
+      "Effect": "Allow",
+      "Resource": "fleet-actions-*"
+    },
+    {
+      "Action": [
+        "iam:Passrole"
+      ]
+      "Effect": "Allow",
+      "Resource": "*"
+    }
+  ]
+}    
+```
+
+### Permission for ec2 instance profile
+EC2 instances themselves need minimum permissions to work correctly within
+the self-hosted framework:
+- EC2(TerminateInstances): instances need to have a mechanism to perform
+  self-termination
+- DynamoDB (Read and Write): Need to send or detect state changes a database
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "dynamodb:*",
+      ],
+      "Effect": "Allow",
+      "Resource": "fleet-actions-*"
+    },
+    {
+       "Action": "ec2:TerminateInstances",
+       "Condition": {
+       "StringEquals": {
+         "ec2:ResourceTag/AllowSelfTermination": "true"
+         }
+       },
+       "Effect": "Allow",
+       "Resource": "*"
+    }
+  ]
+} 
+```
 
 ---
 

@@ -239,29 +239,56 @@ TODO: this needs to be refined
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Effect": "Allow",
       "Action": [
-        "dynamodb:*",
-        "sqs:*",
+        "ec2:CreateFleet",
+        "ec2:RunInstances",
+        "ec2:TerminateInstances",
+        "ec2:CreateTags",
+        "ec2:*LaunchTemplate*",
+        "ec2:Describe*"
       ],
-      "Effect": "Allow",
-      "Resource": "fleet-actions-*"
-    },
-    {
-      "Action": [
-        "ec2:*", 
-      ],
-      "Effect": "Allow",
-      "Resource": "fleet-actions-*"
-    },
-    {
-      "Action": [
-        "iam:Passrole"
-      ]
-      "Effect": "Allow",
       "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:*Item",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:DescribeTable",
+        "dynamodb:CreateTable",
+        "dynamodb:ListTables"
+      ],
+      "Resource": "arn:aws:dynamodb:*:*:table/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:*Queue*",
+        "sqs:*Message"
+      ],
+      "Resource": "arn:aws:sqs:*:*:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "spotfleet.amazonaws.com"
+        }
+      }
     }
   ]
-}    
+}
 ```
 
 ### Permission for ec2 instance profile
@@ -276,10 +303,10 @@ the self-hosted framework:
   "Statement": [
     {
       "Action": [
-        "dynamodb:*",
+        "dynamodb:*Item",
       ],
       "Effect": "Allow",
-      "Resource": "fleet-actions-*"
+      "Resource": "*"
     },
     {
        "Action": "ec2:TerminateInstances",

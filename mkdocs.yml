@@ -1,4 +1,4 @@
-site_name: Self-Hosted EC2 Runners for GitHub Actions
+site_name: Fleet Actions
 site_url: https://mydomain.org/mysite
 theme:
   name: material
@@ -26,3 +26,29 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - admonition
+  - pymdownx.details
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quickstart: getting-started/quickstart.md
+      - Prerequisites: getting-started/prerequisites.md
+      - Configuration: getting-started/configuration.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - How It Works: architecture/how-it-works.md
+  - Examples:
+      - Basic Workflow: examples/basic-workflow.md
+      - Advanced Scenarios: examples/advanced-scenarios.md
+  - FAQ: faq.md

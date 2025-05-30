@@ -7,3 +7,5 @@ coverage/
 .github/
 script/
 testing/
+
+docs

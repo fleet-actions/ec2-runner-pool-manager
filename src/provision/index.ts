@@ -52,6 +52,7 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     selectionOutput = await selection({
       instanceCount: composedInputs.instanceCount,
       resourceClass: composedInputs.resourceClass,
+      usageClass: composedInputs.usageClass,
       // 🔍 for knowing which queue to ref & requeueing
       resourceClassConfig: composedInputs.resourceClassConfig,
       allowedInstanceTypes: composedInputs.allowedInstanceTypes,

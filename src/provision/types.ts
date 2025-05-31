@@ -63,6 +63,7 @@ export interface CreationOuput {
 export interface SelectionInput {
   instanceCount: number
   resourceClass: string // which sqs(as pool) to look in to
+  usageClass: UsageClassType
   // 🔍 For aiding resource release
   resourceClassConfig: ResourceClassConfig
   allowedInstanceTypes: string[]

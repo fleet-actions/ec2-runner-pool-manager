@@ -29,18 +29,31 @@ import { matchWildcardPatterns } from './utils/match-wildcard-patterns.js'
 import type { ResourceClassConfig } from '../../services/types.js'
 import { UsageClassType } from '@aws-sdk/client-ec2'
 
+export interface PoolPickUpManagerProps {
+  allowedInstanceTypes: string[]
+  usageClass: UsageClassType
+  resourceClass: string
+  resourceClassConfig: ResourceClassConfig
+  sqsOps: ResourceClassConfigOperations
+}
+
 export class PoolPickUpManager {
   static readonly FREQ_TOLERANCE = 5
   private instanceFreq: Record<string, number> = {}
 
-  constructor(
-    // Selected resource class defined at initialization - cleaner
-    private allowedInstanceTypes: string[],
-    private usageClass: UsageClassType,
-    private resouceClass: string,
-    private resourceClassConfig: ResourceClassConfig,
-    private sqsOps: ResourceClassConfigOperations
-  ) {}
+  private allowedInstanceTypes: string[]
+  private usageClass: UsageClassType
+  private resourceClass: string
+  private resourceClassConfig: ResourceClassConfig
+  private sqsOps: ResourceClassConfigOperations
+
+  constructor(props: PoolPickUpManagerProps) {
+    this.allowedInstanceTypes = props.allowedInstanceTypes
+    this.usageClass = props.usageClass
+    this.resourceClass = props.resourceClass
+    this.resourceClassConfig = props.resourceClassConfig
+    this.sqsOps = props.sqsOps
+  }
 
   // rc already defined, empty input
   async pickup(): Promise<InstanceMessage | null> {
@@ -50,7 +63,7 @@ export class PoolPickUpManager {
       // CASE: queue is empty
       const instanceMessage =
         await this.sqsOps.receiveAndDeleteResourceFromPool(
-          this.resouceClass,
+          this.resourceClass,
           this.resourceClassConfig
         )
       if (!instanceMessage) {
@@ -82,7 +95,9 @@ export class PoolPickUpManager {
           this.resourceClassConfig
         )
       } else if (status === 'ok') {
-        core.info(`${statusMessage}; using as selected!`)
+        core.info(
+          `${statusMessage}; successful pickup from SQS (resource pool). continuing...`
+        )
         returnValue = instanceMessage
         break
       } else {

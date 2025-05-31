@@ -61,21 +61,10 @@ inputs:
   # Default located in: src/inputs/defaults.ts
   #
   #
-  github-reg-token-refresh-min:
-    description: >
-      [REFRESH; Optional] Interval in minutes to refresh the GitHub registration
-      token for runners. Must be less than 60. (default: 30 minutes)
-    default: ''
   idle-time-sec:
     description: >
       [REFRESH; Optional] Idle time in seconds before a runner instance is
       considered for refresh/termination. (default: 300 seconds)
-    default: ''
-  max-runtime-min:
-    description: >
-      [REFRESH/PROVISION; Optional] The maximum runtime in minutes for a runner
-      instance before it is forcefully terminated. Can be defined in individual
-      provision to override refresh value (default: 30 minutes)
     default: ''
   pre-runner-script:
     description: >
@@ -117,6 +106,17 @@ inputs:
       [PROVISION; Optional] A space-separated list of allowed EC2 instance type
       patterns (e.g., 'c*' 'm*' 'r*'). Defines instance types considered during
       provisioning. (default: 'c* m* r*')
+    default: ''
+
+  # PROVISION && REFRESH
+  # Can be defined in refresh mode, but overriden in respective provision modes
+  #
+  #
+  max-runtime-min:
+    description: >
+      [REFRESH/PROVISION; Optional] The maximum runtime in minutes for a runner
+      instance before it is forcefully terminated. Can be defined in individual
+      provision to override refresh value (default: 30 minutes)
     default: ''
 
 runs:

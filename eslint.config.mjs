@@ -27,7 +27,8 @@ export default [
       '**/dist',
       '**/linter',
       '**/node_modules',
-      'testing/**'
+      'testing/**',
+      '**/venv'
     ]
   },
   ...compat.extends(

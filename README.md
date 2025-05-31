@@ -1,4 +1,4 @@
-# Scale & Reuse Self-Hosted EC2 Runners for GitHub Actions 🚀♻️
+# Scale & Reuse Self-Hosted EC2 Runners inside GitHub Actions 🚀♻️
 
 <img width="1225" alt="Screenshot 2025-05-26 at 6 30 07 PM" src="https://github.com/user-attachments/assets/e6ed55e0-a890-4c63-a05f-50cd343d52aa" />
 
@@ -167,8 +167,6 @@ jobs:
           iam-instance-profile: YourInstanceProfileName
           security-group-ids: sg-123
           subnet-ids: subnet-123 subnet-456
-          # Add other refresh-specific inputs as needed
-          # See👇
 ```
 
 ## 📋 Inputs

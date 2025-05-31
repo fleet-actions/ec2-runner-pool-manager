@@ -1,4 +1,4 @@
-# Quick Start :zap:
+# QuickStart :zap:
 
 Okay, you've done the [prerequisites](./prerequisites.md). We will try to do a basic workflow like so :arrow_down:
 

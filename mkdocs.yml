@@ -5,13 +5,13 @@ theme:
   icon:
     logo: material/bird
   features:
-    - content.code.copy    
+    - content.code.copy
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
       accent: orange
       primary: deep orange
-      
+
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -48,6 +48,7 @@ nav:
       - Prerequisites: getting-started/prerequisites.md
       - Quickstart: getting-started/quickstart.md
       - Advanced Configuration: getting-started/advanced-configuration.md
+      - Monitoring and Troubleshooting: getting-started/monitoring-troubleshooting.md
   - Architecture:
       - Overview: architecture/overview.md
       - How It Works: architecture/how-it-works.md

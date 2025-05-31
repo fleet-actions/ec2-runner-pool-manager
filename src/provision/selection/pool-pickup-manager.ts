@@ -72,10 +72,15 @@ export class PoolPickUpManager {
       }
 
       // immediately register & validate frequency
+      // If frequency is false (meaning pool is pseudo-empty; requeue but return null)
       const freqStatus = this.registerAndValidateFrequency(instanceMessage.id)
       if (!freqStatus) {
         core.info(
-          `We have cycled through the pool too many times, assuming empty; ${JSON.stringify(this.instanceFreq, null, 2)}`
+          `We have cycled through the pool too many times, assuming "empty". Placing back to pool but pickups are suspended; ${JSON.stringify(this.instanceFreq, null, 2)}`
+        )
+        await this.sqsOps.sendResourceToPool(
+          instanceMessage,
+          this.resourceClassConfig
         )
         return null
       }
@@ -153,10 +158,15 @@ export class PoolPickUpManager {
     }
 
     // match usage class type
-    if (usageClass !== this.usageClass) {
+    if (!usageClass) {
+      return {
+        status: 'delete',
+        statusMessage: `The picked up usage class type is not defined.`
+      }
+    } else if (usageClass !== this.usageClass) {
       return {
         status: 'requeue',
-        statusMessage: `The picked up usage class type ${usageClass} does not match allowed usage class type (${this.usageClass})`
+        statusMessage: `The picked up usage class type (${usageClass}) does not match allowed usage class type (${this.usageClass})`
       }
     }
 

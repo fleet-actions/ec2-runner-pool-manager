@@ -6,7 +6,8 @@ import type {
   SpotOptionsRequest,
   TagSpecification,
   Tag,
-  TargetCapacitySpecificationRequest
+  TargetCapacitySpecificationRequest,
+  UsageClassType
 } from '@aws-sdk/client-ec2'
 
 // --- Build Helper Functions ---
@@ -52,13 +53,27 @@ export function buildFleetOverrides(
 /**
  * Builds the target capacity specification for the fleet.
  */
-export function buildTargetCapacitySpecification(
+export function buildTargetCapacitySpecification({
+  instanceCount,
+  usageClass
+}: {
   instanceCount: number
-): TargetCapacitySpecificationRequest {
-  return {
-    TotalTargetCapacity: instanceCount,
-    DefaultTargetCapacityType: 'spot',
-    SpotTargetCapacity: instanceCount
+  usageClass: UsageClassType
+}): TargetCapacitySpecificationRequest {
+  if (usageClass === 'on-demand') {
+    return {
+      TotalTargetCapacity: instanceCount,
+      DefaultTargetCapacityType: 'on-demand',
+      OnDemandTargetCapacity: instanceCount
+    }
+  } else if (usageClass === 'spot') {
+    return {
+      TotalTargetCapacity: instanceCount,
+      DefaultTargetCapacityType: 'spot',
+      SpotTargetCapacity: instanceCount
+    }
+  } else {
+    throw new Error(`invalid usage class ${usageClass}`)
   }
 }
 
@@ -109,6 +124,7 @@ export interface BuildFleetCreationInput {
   targetCapacity: number
   uniqueId: string
   runId: string
+  usageClass: UsageClassType
 }
 
 export function buildFleetCreationInput(
@@ -121,7 +137,8 @@ export function buildFleetCreationInput(
     allowedInstanceTypes,
     targetCapacity,
     uniqueId,
-    runId
+    runId,
+    usageClass
   } = input
   // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-ec2/Interface/FleetLaunchTemplateSpecificationRequest/
   const launchTemplateSpecification: FleetLaunchTemplateSpecificationRequest = {
@@ -135,11 +152,13 @@ export function buildFleetCreationInput(
     allowedInstanceTypes
   )
 
-  const targetCapacitySpec = buildTargetCapacitySpecification(targetCapacity)
-  const spotOptions = buildSpotOptions()
+  const targetCapacitySpec = buildTargetCapacitySpecification({
+    instanceCount: targetCapacity,
+    usageClass
+  })
   const tagSpecifications = buildFleetTagSpecifications({ uniqueId, runId })
 
-  return {
+  const fleetInput: CreateFleetCommandInput = {
     LaunchTemplateConfigs: [
       {
         LaunchTemplateSpecification: launchTemplateSpecification,
@@ -147,9 +166,14 @@ export function buildFleetCreationInput(
       }
     ],
     TargetCapacitySpecification: targetCapacitySpec,
-    SpotOptions: spotOptions,
     Type: 'instant', // 'instant' for synchronous response with instance IDs
     TagSpecifications: tagSpecifications,
     ClientToken: uniqueId // For idempotency
   }
+
+  if (usageClass !== 'on-demand') {
+    fleetInput.SpotOptions = buildSpotOptions()
+  }
+
+  return fleetInput
 }

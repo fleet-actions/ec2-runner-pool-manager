@@ -7,6 +7,7 @@ import {
 } from './application-operations.js'
 import { ResourceClassConfigInput, ValidMode } from '../../../inputs/types.js'
 import type { ResourceClassConfig } from '../../types.js'
+import type { UsageClassType } from '@aws-sdk/client-ec2'
 
 export interface InstanceMessage {
   id: string
@@ -14,6 +15,7 @@ export interface InstanceMessage {
   instanceType: string
   cpu: number // 🔍 added as used in selection filter, obtainable in creation due to init attributes
   mmem: number // .mmem retaints original meaning as minimum, not exact
+  usageClass: UsageClassType
 }
 
 export interface SendResourcesToPoolsOutput {

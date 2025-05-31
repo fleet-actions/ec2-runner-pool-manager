@@ -1,3 +1,5 @@
+import { UsageClassType } from '@aws-sdk/client-ec2'
+
 export type ValidMode = 'provision' | 'refresh' | 'release'
 
 export interface BaseInputs {
@@ -9,7 +11,7 @@ export interface BaseInputs {
   githubRunId: string
 }
 
-export type UsageClass = 'spot' | 'on-demand'
+// export type UsageClass = 'spot' | 'on-demand'
 
 export interface ProvisionInputs extends BaseInputs {
   // overrides base
@@ -18,7 +20,7 @@ export interface ProvisionInputs extends BaseInputs {
   instanceCount: number
   allowedInstanceTypes: string[]
   resourceClass: string
-  usageClass: UsageClass
+  usageClass: UsageClassType
   maxRuntimeMin: number
 }
 

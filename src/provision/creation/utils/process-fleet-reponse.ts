@@ -1,5 +1,8 @@
 import * as core from '@actions/core'
-import type { CreateFleetCommandOutput } from '@aws-sdk/client-ec2'
+import type {
+  CreateFleetCommandOutput,
+  UsageClassType
+} from '@aws-sdk/client-ec2'
 import type { FleetResult, Instance } from '../../types.js'
 
 /**
@@ -12,6 +15,7 @@ export interface ProcessFleetResponseInput {
   cpu: number
   mmem: number
   targetCapacity: number
+  usageClass: UsageClassType
 }
 
 export function processFleetResponse(
@@ -40,7 +44,8 @@ export function processFleetResponse(
           instanceType,
           resourceClass,
           cpu: input.cpu,
-          mmem: input.mmem
+          mmem: input.mmem,
+          usageClass: input.usageClass
         }))
       )
     })

@@ -1,8 +1,9 @@
 import { parseBaseInputs } from './base-inputs.js'
-import { ProvisionInputs, UsageClass } from './types.js'
+import { ProvisionInputs } from './types.js'
 import { getNumber, getStringArray, getGeneric, getString } from './helpers.js'
 
 import { PROVISION_DEFAULT } from './defaults.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 export function parseProvisionInputs(): ProvisionInputs {
   const baseInputs = parseBaseInputs()
@@ -25,8 +26,8 @@ export function parseProvisionInputs(): ProvisionInputs {
   }
 }
 
-export function getUsageClass(): UsageClass {
-  return getGeneric<UsageClass>(
+export function getUsageClass(): UsageClassType {
+  return getGeneric<UsageClassType>(
     'usage-class',
     (raw: string) => {
       if (raw !== 'spot' && raw !== 'on-demand') {
@@ -34,9 +35,8 @@ export function getUsageClass(): UsageClass {
           `usage-class must be 'spot' or 'on-demand', got '${raw}'`
         )
       }
-      return raw as UsageClass
+      return raw as UsageClassType
     },
-    // usage-class not required as we can explicitly defer to default (hopefully 'spot')
     false,
     PROVISION_DEFAULT
   )

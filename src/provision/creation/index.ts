@@ -33,7 +33,8 @@ export async function creation(input: CreationInput): Promise<CreationOuput> {
     numInstancesRequired: input.numInstancesRequired,
     ec2Ops: input.ec2Ops.fleetOperations,
     ddbOps: input.ddbOps.instanceOperations,
-    runId: input.runId
+    runId: input.runId,
+    usageClass: input.usageClass
   })
 
   // this is where we would determine

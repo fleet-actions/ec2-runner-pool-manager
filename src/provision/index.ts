@@ -34,6 +34,8 @@ export async function provision(inputs: ProvisionInputs): Promise<void> {
     `Composed: ${JSON.stringify({ ...composedInputs, ghRegistrationToken: '' })}`
   )
 
+  // composedInputs.usageClass
+
   // SELECTION
   // selection()
   // .given resource pool, and requirements, pickup valid instance ids

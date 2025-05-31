@@ -10,6 +10,7 @@ import { InstanceOperations as EC2InstanceOperations } from '../services/ec2/ope
 import { InstanceOperations as DDBInstanceOperations } from '../services/dynamodb/operations/instance-operations.js'
 import { ResourceClassConfigOperations } from '../services/sqs/operations/resource-class-operations.js'
 import { WorkerSignalOperations } from '../services/dynamodb/operations/signal-operations.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 // NOTE: Allow for 'partial' when we decide to allow for multiple fleet attempts
 export type FleetStates = 'success' | 'partial' | 'failed'
@@ -23,7 +24,7 @@ export interface FleetResult {
 
 export interface CreationInput {
   numInstancesRequired: number // exit if 0
-  usageClass: string //spot - Assume 'spot' for this implementation
+  usageClass: UsageClassType //spot - Assume 'spot' for this implementation
   resourceClass: string
   resourceSpec: ResourceSpec // { cpu, mmem, queueUrl }
   allowedInstanceTypes: string[] // [ "c*", "m*", "r5.large" ]

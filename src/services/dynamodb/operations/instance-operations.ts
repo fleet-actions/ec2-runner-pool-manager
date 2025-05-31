@@ -13,6 +13,7 @@ import {
 import { BasicOperations } from './basic-operations.js'
 import type { BasicItem } from './basic-operations.js'
 import { DynamoDBClient } from '../dynamo-db-client.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 export type InstanceStates =
   | 'idle'
@@ -34,6 +35,7 @@ export interface InstanceItem extends BasicItem {
 
   resourceClass: string
   instanceType: string
+  usageClass: UsageClassType
 }
 
 export interface InstanceTransitionInput {
@@ -177,13 +179,15 @@ export class InstanceOperations extends BasicOperations {
     runId,
     threshold,
     resourceClass,
-    instanceType
+    instanceType,
+    usageClass
   }: {
     id: string
     runId: string
     threshold: string
     resourceClass: string
     instanceType: string
+    usageClass: UsageClassType
   }): Promise<boolean> {
     core.info(`Registering instance ${id} as 'created'`)
 
@@ -195,6 +199,7 @@ export class InstanceOperations extends BasicOperations {
       threshold,
       resourceClass,
       instanceType,
+      usageClass,
       // 🔍 on instance created registration, immediately 'created' state
       // .will be changed on running registration
       state: 'created'

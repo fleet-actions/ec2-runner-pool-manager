@@ -27,6 +27,7 @@ import {
 } from '../../services/sqs/operations/resource-class-operations.js'
 import { matchWildcardPatterns } from './utils/match-wildcard-patterns.js'
 import type { ResourceClassConfig } from '../../services/types.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 export class PoolPickUpManager {
   static readonly FREQ_TOLERANCE = 5
@@ -35,6 +36,7 @@ export class PoolPickUpManager {
   constructor(
     // Selected resource class defined at initialization - cleaner
     private allowedInstanceTypes: string[],
+    private usageClass: UsageClassType,
     private resouceClass: string,
     private resourceClassConfig: ResourceClassConfig,
     private sqsOps: ResourceClassConfigOperations
@@ -101,7 +103,7 @@ export class PoolPickUpManager {
     statusMessage: string
   } {
     // all attributes used apart from id
-    const { cpu, mmem, resourceClass, instanceType } = input
+    const { cpu, mmem, resourceClass, instanceType, usageClass } = input
 
     // unlikely to proc, but if message has invalid rc from pool its been put in, then invalid
     const rc = this.resourceClassConfig[resourceClass]
@@ -132,6 +134,14 @@ export class PoolPickUpManager {
       return {
         status: 'requeue',
         statusMessage: `The picked up instance type ${instanceType} does not match allowed instance types (${this.allowedInstanceTypes})`
+      }
+    }
+
+    // match usage class type
+    if (usageClass !== this.usageClass) {
+      return {
+        status: 'requeue',
+        statusMessage: `The picked up usage class type ${usageClass} does not match allowed usage class type (${this.usageClass})`
       }
     }
 

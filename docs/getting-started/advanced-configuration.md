@@ -1,37 +1,68 @@
-# Advanced Configuration & Optimization Strategies
+# Advanced Configuration :construction_site:
 
 ## 1. Introduction
 
-Welcome to the Advanced Configuration guide for the EC2 Runner Pool Manager! This document explores strategies and settings that go beyond the initial setup covered in the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) guides.
+This document explores the additional optional inputs given opened up to the controlplane via inputs to `provision` and `refresh` in order to give the operator the ability to better control the lifecycles of the instances beyond initial defaults. See the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) for the initial setup guides.
+
+!!! note
+    Hopefully this page can stand by itself, but feel free to read through the [Architecture](../todo.md) to see this from a wider context.
 
 ## 2. Fine-Tuning Runner Lifecycle and Resource Management
 
-Careful management of runner lifecycles and AWS resources is key to an efficient and cost-effective self-hosted runner system.
+### Understanding Runner Timeouts
 
-### Understanding Runner Timeouts & Refresh Intervals
+Several inputs in the `refresh` mode control how long runners live and how often their configurations. Finding the right balance is crucial:
 
-Several inputs in the `refresh` mode control how long runners live and how often their configurations or tokens are refreshed. Finding the right balance is crucial:
+!!! tip "**Strategy** :straight_ruler:"
+    Start with the defaults. If you notice frequent cold starts and your budget allows, consider increasing `idle-time-sec`. If cost is a primary concern, shorten `idle-time-sec` but monitor workflow times. Ensure `max-runtime-min` accommodates your longest jobs.
 
-* **`github-reg-token-refresh-min`** (e.g., default `30` minutes):
-  * **What it does:** Determines how frequently the action fetches new GitHub registration tokens for runners. GitHub tokens for registering new runners typically expire after 60 minutes.
-  * **Considerations:** Set this to a value safely below 60 minutes (e.g., 30-45 minutes) to ensure there's always a fresh token available for new instances. If this is too long and a token expires, new runners might fail to register.
+#### `idle-time-sec`: Lifetime in Resource Pool :person_swimming:
 
-* **`idle-time-sec`** (e.g., default `300` seconds / 5 minutes):
-  * **What it does:** Specifies how long a provisioned runner instance will remain idle in the pool waiting for a new job before it considers itself eligible for self-termination.
-  * **Considerations:**
-    * **Shorter `idle-time-sec`:** Reduces costs by terminating idle instances sooner. However, it might lead to more "cold starts" if subsequent jobs arrive just after an instance terminated, increasing wait times.
-    * **Longer `idle-time-sec`:** Increases runner availability and reduces cold starts, but can lead to higher costs due to instances sitting idle for longer.
+Defined at the `refresh` level with a default of 300s/5m. This defines how long the instance lives in the resource pool for following workflows to pickup! If in the pool for too long, the instance will be terminated by `refresh` or will undergo self-termination.
+
+```yaml
+# used here ...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          # idle-time-sec: 300 # <---- (Default: 300 seconds)
+```
+
+??? note "`idle-time-sec` - Shorter or Longer :thinking:"
+    * **Shorter:** Reduces costs by terminating idle instances sooner. However, it might lead to more "cold starts" if subsequent jobs arrive just after an instance terminated, increasing wait times.
+    * **Longer:** Increases runner availability and reduces cold starts, but can lead to higher costs due to instances sitting idle for longer.
     * Align this with your typical job arrival patterns. If jobs are infrequent, a shorter idle time might be better. If jobs are frequent, a longer idle time can improve CI/CD pipeline speed.
 
-* **`max-runtime-min`** (e.g., default `30` minutes for `refresh` mode, can be overridden by `provision`):
-  * **What it does:** Defines the absolute maximum time an EC2 instance can run, regardless of whether it's idle or busy. This acts as a safety net to prevent runaway instances and ensure instances are periodically recycled (e.g., to pick up AMI updates if not using a more sophisticated AMI update strategy).
-  * **Considerations:**
-    * Set this longer than your longest expected job duration, plus any `idle-time-sec` and provisioning overhead.
-    * If set too short, jobs might be terminated prematurely.
-    * Regularly recycling instances can be good for security and stability.
+#### `max-runtime-min`: Expected Max Job Duration :person_running:
 
-**Strategy:**
-Start with the defaults. If you notice frequent cold starts and your budget allows, consider increasing `idle-time-sec`. If cost is a primary concern, shorten `idle-time-sec` but monitor workflow queue times. Ensure `max-runtime-min` accommodates your longest jobs.
+Defined at the `refresh` level (default: 30 minutes) and overridable at the `provision` level, this parameter sets the maximum duration an instance remains active *after being assigned to a workflow but before it's released back to the pool*.
+
+It acts as a **critical safeguard**, allowing the control plane to terminate instances if a CI job significantly exceeds its expected runtime. This prevents runaway jobs and also guards against orphaned instances that might occur due to misconfigured `release` steps in a workflow.
+
+```yaml
+# used here ...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          # max-runtime-min: 30 # <---- (Default: 30m)
+```
+
+Overriding at the `provision` level. The operator can set some expectations for the controlplane to say how long a specific workflow can take from `provision` to `release` and control this timeouts at a workflow level instead of at the repo level.
+
+```yaml
+# used here ...
+      - name: Provision Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: provision
+          # max-runtime-min: 30 # <---- (If not provided, uses refresh input or default)
+```
+
+??? note "`max-runtime-min` - Shorter or Longer :thinking:"
+    * **Recommendation** Be conservative. Whatever your longest running job is at a workflow, add 10-15 minutes to it to avoid pre-mature termination.
+    * This can be set at either the `refresh` or `provision` level to set per-workflow expectations.
 
 ### Instance Purchasing Options (`provision` mode)
 
@@ -51,17 +82,6 @@ The `provision` mode offers ways to control the type and cost of EC2 instances:
   * **What it does:** Specifies a space-separated list of EC2 instance types or families that the action can choose from when provisioning. Wildcards (`*`) can be used.
   * **Considerations with Spot:** When using `spot`, providing a diverse list of instance types (e.g., across different families and sizes like `m5.large m5a.large m5n.large c5.large c5a.large`) increases the likelihood of obtaining Spot capacity at your desired price and reduces the chance of interruptions. The action will typically use the cheapest available instance type from this list that meets any resource class requirements.
   * **Considerations with On-Demand:** You might specify one or a few preferred instance types.
-
-### Overriding Pool Defaults in `provision` Mode
-
-The `provision` mode can override certain settings established by the `refresh` mode for the specific set of runners it's provisioning.
-
-* **Example: `max-runtime-min` in `provision` mode:**
-  * Your `refresh` mode might set a default `max-runtime-min` of, say, 60 minutes for general pool health.
-  * However, for a specific workflow that has a very long-running job (e.g., an end-to-end test suite that takes 120 minutes), you can specify `max-runtime-min: 130` (allowing some buffer) in the `provision` step of that workflow. This ensures those specific runners won't self-terminate prematurely based on the pool's default.
-
-**Strategy:**
-Use `refresh` to set sensible defaults for the entire pool. Use `provision` mode overrides for exceptional workflows that have different lifecycle or resource requirements.
 
 ## 3. Advanced AMI and `pre-runner-script` Strategies
 
@@ -197,21 +217,3 @@ Always grant only the permissions necessary.
     * Traffic between your EC2 runners and these AWS services stays within the AWS network, not traversing the public internet. This enhances security.
     * Can potentially reduce data transfer costs and reliance on NAT Gateways for private subnets.
   * **Considerations:** Adds some complexity to network setup. Ensure your subnets' route tables and security groups are configured correctly for endpoints.
-
-### Secrets Management for `pre-runner-script`
-
-If your `pre-runner-script` needs sensitive information (API keys, database passwords):
-
-* **AWS Secrets Manager or AWS Systems Manager Parameter Store (SecureString type):**
-  * Store secrets securely in these services.
-  * Grant the EC2 Instance Profile IAM role permission to read these specific secrets.
-  * In your `pre-runner-script`, use the AWS CLI to fetch the secrets:
-
-        ```bash
-        #!/bin/bash
-        API_KEY=$(aws secretsmanager get-secret-value --secret-id your/secret/arn --query SecretString --output text | jq -r .YourApiKey)
-        # Or for Parameter Store:
-        # DB_PASSWORD=$(aws ssm get-parameter --name "/your/db/password" --with-decryption --query Parameter.Value --output text)
-        
-        # Now use $API_KEY or $DB_PASSWORD in your script
-        ```

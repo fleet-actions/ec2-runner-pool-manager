@@ -1,44 +1,45 @@
 # Prerequisites :pray:
 
-Before getting started, we need to sort out what we need to place on `mode: refresh` so that everything can get initialized. Once all done, these inputs are used in `.github/workflows/refresh.yml` - like so:
+Before [Quickstart](quickstart.md), we need to sort out wthe inputs for `mode: refresh` in order to initialize everything. Once done, these inputs are used in `.github/workflows/refresh.yml` - like so:
 
-```yaml
-jobs:
-  refresh_job:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@main
-        with:
-          # IAM User credentials for GH Runner
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }} 
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-      - name: Refresh Mode
-        uses: fleet-actions/ec2-runner-pool-manager@main
-        with:
-          mode: refresh
-          # Github Personal Access Token
-          github-token: ${{ secrets.GH_PAT }}
-          # EC2 Machine Image
-          ami: ami-123
-          # Profile passed on to the EC2 instance for permissions
-          iam-instance-profile: your-instance-profile
-          # Security group assigned to EC2 instances
-          security-group-ids: sg-123
-          # Subnets where EC2s are placed
-          subnet-ids: subnet-123 subnet-456 subnet-789
-          # AWS region (default: us-east-1)
-          aws-region: us-east-1
-          # Injected script, install additional packages here, see Machine Image section below
-          pre-runner-script: |
-            echo "hello world"
-```
+??? example "Example - `.github/workflows/refresh.yml`"
+    ```yaml
+    jobs:
+      refresh_job:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@main
+            with:
+              # IAM User credentials for GH Runner
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }} 
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: us-east-1
+          - name: Refresh Mode
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: refresh
+              # Github Personal Access Token
+              github-token: ${{ secrets.GH_PAT }}
+              # EC2 Machine Image
+              ami: ami-123
+              # Profile passed on to the EC2 instance for permissions
+              iam-instance-profile: your-instance-profile
+              # Security group assigned to EC2 instances
+              security-group-ids: sg-123
+              # Subnets where EC2s are placed
+              subnet-ids: subnet-123 subnet-456 subnet-789
+              # AWS region (default: us-east-1)
+              aws-region: us-east-1
+              # Injected script, install additional packages here, see Machine Image section below
+              pre-runner-script: |
+                echo "hello world"
+    ```
 
 Here's your checklist:
 
 - [x] GitHub Personal Access Token (PAT)
-- [x] Networking: VPC, subnet and security group
+- [x] Networking: VPC, Subnet and Security Group
 - [x] IAM User & Permissions for GitHub Actions Workflow
 - [x] IAM Role & Instance Profile for EC2 Instances
 - [x] Machine Image: EC2 AMI image
@@ -110,7 +111,7 @@ To quickly get started, we will be using an IAM User with credentials stored sec
         {
           "Effect": "Allow",
           "Action": ["iam:PassRole"],
-          "Resource": "arn:aws:iam::*:role/*" // Consider restricting this to the specific instance profile role
+          "Resource": "arn:aws:iam::*:role/*"
         },
         {
           "Effect": "Allow",
@@ -122,12 +123,12 @@ To quickly get started, we will be using an IAM User with credentials stored sec
             "dynamodb:CreateTable",
             "dynamodb:ListTables"
           ],
-          "Resource": "arn:aws:dynamodb:*:*:table/*" // Consider restricting this
+          "Resource": "arn:aws:dynamodb:*:*:table/*"
         },
         {
           "Effect": "Allow",
           "Action": ["sqs:*Queue*", "sqs:*Message"],
-          "Resource": "arn:aws:sqs:*:*:*" // Consider restricting this
+          "Resource": "arn:aws:sqs:*:*:*"
         },
         {
           "Effect": "Allow",
@@ -135,7 +136,7 @@ To quickly get started, we will be using an IAM User with credentials stored sec
           "Resource": "*",
           "Condition": {
             "StringEquals": {
-              "iam:AWSServiceName": ["spotfleet.amazonaws.com", "ec2.amazonaws.com"] // Added ec2 for general SLR needs
+              "iam:AWSServiceName": ["spotfleet.amazonaws.com", "ec2.amazonaws.com"]
             }
           }
         }

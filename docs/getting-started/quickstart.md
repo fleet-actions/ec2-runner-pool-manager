@@ -1,8 +1,10 @@
 # QuickStart :zap:
 
-Okay, you've done the [prerequisites](./prerequisites.md). We will try to do a basic workflow like so :arrow_down:
+Once you've completed the [Prerequisites](./prerequisites.md), you can set up a basic workflow as illustrated below:
 
 ![Sample-Workflow](../assets/sample-workflow-light.png)
+
+For details on fine-tuning timeouts and other settings, please refer to the [Advanced Configuration](advanced-configuration.md) guide.
 
 ## Let's get started! (follow in order)
 
@@ -16,7 +18,7 @@ Okay, you've done the [prerequisites](./prerequisites.md). We will try to do a b
 3. If refresh is OK -> create `ci.yml` and push :fingers_crossed:
 
 !!! note "Resource Pooling - reruns are faster :recycle:"
-    On your first run, your provision step may take 30 to 90s due to OS startup and any pre-runner-scripts. But, as we reuse runners between workflows, the instances are picked up from the pool instead :heart_eyes:
+    On your first run, your provision step may take 30 to 90s due to OS startup and any pre-runner-scripts (if any). But, as we reuse runners between workflows, the instances are picked up from the pool instead :heart_eyes:
 
 ## Files to Create
 
@@ -124,4 +126,3 @@ Okay, you've done the [prerequisites](./prerequisites.md). We will try to do a b
             with:
               mode: release
     ```
-

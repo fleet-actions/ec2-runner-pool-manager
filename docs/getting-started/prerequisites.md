@@ -1,12 +1,65 @@
-# Let's get up and running :pray:
+# Prerequisites :pray:
 
-Here's what you need:
+Before getting started, we need to sort out what we need to place on `mode: refresh` so that everything can get initialized. Once all done, these inputs are used in `.github/workflows/refresh.yml` - like so:
 
-1. Networking: VPC, subnet and security group
-2. IAM: Permissions for the Github Runners and Instance Profile for the instances
-3. Machine Image: EC2 AMI image
+```yaml
+jobs:
+  refresh_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@main
+        with:
+          # IAM User credentials for GH Runner
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }} 
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          # Github Personal Access Token
+          github-token: ${{ secrets.GH_PAT }}
+          # EC2 Machine Image
+          ami: ami-123
+          # Profile passed on to the EC2 instance for permissions
+          iam-instance-profile: your-instance-profile
+          # Security group assigned to EC2 instances
+          security-group-ids: sg-123
+          # Subnets where EC2s are placed
+          subnet-ids: subnet-123 subnet-456 subnet-789
+          # AWS region (default: us-east-1)
+          aws-region: us-east-1
+          # Injected script, install additional packages here, see Machine Image section below
+          pre-runner-script: |
+            echo "hello world"
+```
 
-## 1. Networking
+Here's your checklist:
+
+- [x] GitHub Personal Access Token (PAT)
+- [x] Networking: VPC, subnet and security group
+- [x] IAM User & Permissions for GitHub Actions Workflow
+- [x] IAM Role & Instance Profile for EC2 Instances
+- [x] Machine Image: EC2 AMI image
+
+## 1. GitHub Personal Access Token (PAT)
+
+A [GitHub Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) is required for the action to manage self-hosted runners. This will be used for the `refresh` mode creates temporary tokens to handles runner registration with GitHub.
+
+1. **Create the PAT** with `repo` scope
+2. **Store as a secret** named `GH_PAT`. We access this as `github-token: ${{ secrets.GH_PAT }}`
+
+```yaml
+# used here ...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          github-token: ${{ secrets.GH_PAT }} # <----
+```
+
+## 2. Networking
 
 For this action to work, we need an available VPC, Subnet and Security group
 
@@ -14,17 +67,30 @@ For this action to work, we need an available VPC, Subnet and Security group
 - Subnet: Ensure that the subnet can reach the internet (public subnet, or private subnet with a NAT Gateway)
 - Security Group: When getting started, I recommend creating a permissive security groups and narrow down from there. If you need more restriction, see [github's recommendation](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/communicating-with-self-hosted-runners)
 
-!!! note "Recommendation: 1 VPC with a subnet per AWS Region's availability zones"
+```yaml
+# used here ...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          security-group-ids: sg-123 # <-----
+          subnet-ids: subnet-123 subnet-456 subnet-789 # <-----
+```
+
+!!! tip "Recommendation: 1 VPC with a subnet per AWS Region's availability zones"
     While atleast one subnet is required. I recommend creating and inputting a subnet for each of the availability zones to ensure that for however many instances is required for a workflow, AWS can quickly and cheaply provide them.
 
 !!! note "Note: Accessibility to DynamoDB"
     The created instances polls the dynamodb service for various functionalities (safe self-termination, liveliness, etc.). When hardening access, just ensure that dynamodb is still accessible for the instances.
 
-## 2. IAM
+## 3. IAM User for GitHub Actions Workflow
 
-For this action to work, we need two IAM entities. One for the gihub runners themselves, and one for the EC2 instances. The latter is delivered via EC2 instance profiles. See the minimum permission policies below.
+For the GitHub Actions workflow to interact with your AWS account (to manage EC2 instances, DynamoDB, SQS, Launch Templates, etc.), it needs an IAM identity with appropriate permissions. We will be using [aws-actions/configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials)
 
-??? example "1. Github Runner Permissions (EC2/DynamoDB/SQS/Spot)"
+To quickly get started, we will be using an IAM User with credentials stored secrets with names: `AWS_ACCESS_KEY_ID` & `AWS_SECRET_ACCESS_KEY`. Consider using [OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) for further hardening.
+
+??? example "Policy for GitHub Actions Workflow"
+    This policy grants the GitHub Actions workflow the necessary permissions. The `iam:PassRole` permission is crucial for allowing the workflow to pass an IAM role to the EC2 instances it creates (the EC2 Instance Profile).
     ```json
     {
       "Version": "2012-10-17",
@@ -44,7 +110,7 @@ For this action to work, we need two IAM entities. One for the gihub runners the
         {
           "Effect": "Allow",
           "Action": ["iam:PassRole"],
-          "Resource": "arn:aws:iam::*:role/*"
+          "Resource": "arn:aws:iam::*:role/*" // Consider restricting this to the specific instance profile role
         },
         {
           "Effect": "Allow",
@@ -56,12 +122,12 @@ For this action to work, we need two IAM entities. One for the gihub runners the
             "dynamodb:CreateTable",
             "dynamodb:ListTables"
           ],
-          "Resource": "arn:aws:dynamodb:*:*:table/*"
+          "Resource": "arn:aws:dynamodb:*:*:table/*" // Consider restricting this
         },
         {
           "Effect": "Allow",
           "Action": ["sqs:*Queue*", "sqs:*Message"],
-          "Resource": "arn:aws:sqs:*:*:*"
+          "Resource": "arn:aws:sqs:*:*:*" // Consider restricting this
         },
         {
           "Effect": "Allow",
@@ -69,7 +135,7 @@ For this action to work, we need two IAM entities. One for the gihub runners the
           "Resource": "*",
           "Condition": {
             "StringEquals": {
-              "iam:AWSServiceName": "spotfleet.amazonaws.com"
+              "iam:AWSServiceName": ["spotfleet.amazonaws.com", "ec2.amazonaws.com"] // Added ec2 for general SLR needs
             }
           }
         }
@@ -77,7 +143,30 @@ For this action to work, we need two IAM entities. One for the gihub runners the
     }
     ```
 
-??? example "2. EC2 Instance Profile (DynamoDB, Self-Termination)"
+```yaml
+# used here ...
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }} # <---
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }} # <---
+          aws-region: us-east-1
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          # ...
+```
+
+## 4. IAM Role & Instance Profile for EC2 Instances
+
+The EC2 instances launched by this action need their own set of permissions to perform tasks (see: [architecture](../todo.md)) These permissions are granted via an IAM Role -> attached to the instances through an EC2 Instance Profile.
+
+To quickly get started, **use the AWS console** to [create an IAM Role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html). When you select “EC2” as the trusted service during role creation, the console automagically generates a [matching EC2 Instance Profile](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) (with the same name). Once the role and its instance profile exist, attach the following policies :arrow_down:
+
+??? example "Policy for EC2 Instance Profile"
+    This policy allows the EC2 instances to interact with DynamoDB and terminate themselves if they carry a specific tag.
     ```json
     {
       "Version": "2012-10-17",
@@ -101,35 +190,52 @@ For this action to work, we need two IAM entities. One for the gihub runners the
     }
     ```
 
-
+```yaml
+# used here...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          iam-instance-profile: your-instance-profile # <---
+```
 
 !!! note "Note: Further Hardening"
-    These example policies above are provided as a guide. They can and most likely should be limited even more by specifying the resources you use.
+    The example policies above are provided as a guide. They can and most likely should be limited even more by specifying the resources (e.g., specific DynamoDB table ARNs, SQS queue ARNs, specific IAM roles for `PassRole`) rather than using `*`. Restricting `iam:PassRole` to only the specific instance profile role is highly recommended.
 
-## 3. Machine Image
+## 5. Machine Image
 
-### :zap: Quickstart Recommendation: Runs On AWS AMI Images
+### :zap: Quickstart Recommendation: Runs On Community AMI Images
 
 To get up and running, I recommend using [run-on's AWS AMI images](https://github.com/runs-on/runner-images-for-aws). This will get you started quickly as they graciously keep an EC2-compatible machine image up to date with the packages used by [the official Github Runner images](https://github.com/actions/runner-images).
+
+```yaml
+# used here...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          iam-instance-profile: your-instance-profile # <---
+```
 
 ### Amazon Linux 2023
 
 If you chose to use a bare Amazon Linux 2023 image, an additional script is required. This is supplied via the pre-runner-script input for mode: `refresh`
 
 ```yaml
-## in refresh.yml
-
-## other configurations ...
-  with: 
-    mode: refresh
-    uses: fleet-actions/ec2-runner-pool-manager@main 
-    pre-runner-script: |
-      sudo yum update -y && \
-      sudo yum install docker -y && \
-      sudo yum install git -y && \
-      sudo yum install libicu -y && \
-      sudo systemctl enable docker
-    # and other refresh inputs ... 
+# used here ...
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          # If AMI is AL2023, need to manually install the following packages
+          ami: ami-123 
+          pre-runner-script: |
+            sudo yum update -y && \
+            sudo yum install docker -y && \
+            sudo yum install git -y && \
+            sudo yum install libicu -y && \
+            sudo systemctl enable docker
+          # and other refresh inputs ... 
 ```
 
 ### Other images

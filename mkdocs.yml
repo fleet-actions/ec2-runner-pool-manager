@@ -45,9 +45,9 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
-      - Quickstart: getting-started/quickstart.md
       - Prerequisites: getting-started/prerequisites.md
-      - Configuration: getting-started/configuration.md
+      - Quickstart: getting-started/quickstart.md
+      - Advanced Configuration: getting-started/advanced-configuration.md
   - Architecture:
       - Overview: architecture/overview.md
       - How It Works: architecture/how-it-works.md

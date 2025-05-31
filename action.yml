@@ -117,7 +117,7 @@ inputs:
       [REFRESH/PROVISION; Optional] The maximum runtime in minutes for a runner
       instance before it is forcefully terminated. Can be defined in individual
       provision to override refresh value (default: 30 minutes)
-    default: ''  
+    default: ''
 
 runs:
   using: node20

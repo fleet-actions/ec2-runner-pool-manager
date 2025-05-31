@@ -37,9 +37,12 @@ lifecycle management.
 
 ## 🔍 Overview
 
-This action operates using three distinct modes (`provision`, `release`, `refresh`) to control, share, and scale self-hosted EC2 runners directly within GitHub Actions. The diagram below illustrates how these modes typically fit into your GitHub Actions workflow files:
+This action operates using three distinct modes (`provision`, `release`, `refresh`) to control, share, and scale self-hosted EC2 runners directly within GitHub Actions. The diagram below illustrates how these modes fit into your GitHub Actions workflow files:
 
 ![Modes In Workflows](assets/mode-and-workflows.png)
+
+!!! note
+    To see how this fits in your Github Actions code and get started, see: [prerequisites](getting-started/prerequisites.md) & [quickstart](getting-started/quickstart.md)
 
 Here’s a closer look at each operational mode:
 

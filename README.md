@@ -167,8 +167,6 @@ jobs:
           iam-instance-profile: YourInstanceProfileName
           security-group-ids: sg-123
           subnet-ids: subnet-123 subnet-456
-          # Add other refresh-specific inputs as needed
-          # See👇
 ```
 
 ## 📋 Inputs

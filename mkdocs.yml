@@ -4,11 +4,14 @@ theme:
   name: material
   icon:
     logo: material/bird
+  features:
+    - content.code.copy    
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
       accent: orange
       primary: deep orange
+      
       toggle:
         icon: material/brightness-4
         name: Switch to light mode

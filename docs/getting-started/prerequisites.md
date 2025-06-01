@@ -1,6 +1,6 @@
 # Prerequisites :pray:
 
-Before [Quickstart](quickstart.md), we need to sort out wthe inputs for `mode: refresh` in order to initialize everything. Once done, these inputs are used in `.github/workflows/refresh.yml` - like so:
+Before [Quickstart](quickstart.md), we need to sort out the inputs for `mode: refresh` in order to initialize everything. Once done, these inputs are used in `.github/workflows/refresh.yml` - like so:
 
 ??? example "Example - `.github/workflows/refresh.yml`"
     ```yaml
@@ -12,7 +12,7 @@ Before [Quickstart](quickstart.md), we need to sort out wthe inputs for `mode: r
             uses: aws-actions/configure-aws-credentials@main
             with:
               # IAM User credentials for GH Runner
-              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }} 
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
               aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
               aws-region: us-east-1
           - name: Refresh Mode
@@ -215,7 +215,7 @@ To get up and running, I recommend using [run-on's AWS AMI images](https://githu
         uses: fleet-actions/ec2-runner-pool-manager@main
         with:
           mode: refresh
-          iam-instance-profile: your-instance-profile # <---
+          ami: ami-123 # <---
 ```
 
 ### Amazon Linux 2023
@@ -229,14 +229,14 @@ If you chose to use a bare Amazon Linux 2023 image, an additional script is requ
         with:
           mode: refresh
           # If AMI is AL2023, need to manually install the following packages
-          ami: ami-123 
+          ami: ami-123
           pre-runner-script: |
             sudo yum update -y && \
             sudo yum install docker -y && \
             sudo yum install git -y && \
             sudo yum install libicu -y && \
             sudo systemctl enable docker
-          # and other refresh inputs ... 
+          # and other refresh inputs ...
 ```
 
 ### Other images

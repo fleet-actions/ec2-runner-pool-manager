@@ -99,67 +99,56 @@ The default is `c* m* r*`. This setting allows the control plane to choose from 
 
 ## 3. Advanced AMI and `pre-runner-script` Strategies
 
-Optimizing your Amazon Machine Images (AMIs) and leveraging the `pre-runner-script` can significantly improve runner startup times and flexibility.
+Bake as much in to the AMI image as you can to ensure timely startup times. As per [Quickstart](../getting-started/quickstart.md), feel free to use Runs-On's machine images to not worry about any of this. However if you do decide to roll your own, there are a couple of hard requirements to ensure proper functionality:
 
-### Building and Using Custom AMIs
+- [x] `git` & `docker`: For checking out code and running containers
+- [x] `aws cli`: Instances to send and receive signals from the controlplane via dynamodb
+- [x] `libicu`: For configuring instances against github actions as a self-hosted runner
 
-While the `pre-runner-script` is great for dynamic setup, a custom AMI "bakes in" dependencies.
+### `pre-runner-script`
 
-* **Benefits:**
-  * **Faster Startup Times:** Eliminates the time taken to download and install software on every new instance via `pre-runner-script`.
-  * **Reduced Complexity in `pre-runner-script`:** The script can be simpler or even unnecessary.
-  * **Improved Reliability:** Less prone to failures from package repository outages or transient network issues during instance boot.
-  * **Security Hardening:** AMIs can be pre-hardened according to your security baselines.
-* **Tools & Considerations:**
-  * **Packer by HashiCorp:** A popular open-source tool for creating identical machine images for multiple platforms from a single source configuration.
-  * **AWS EC2 Image Builder:** A fully managed AWS service for automating the creation, management, and deployment of customized, secure, and up-to-date "golden" server images.
-  * **Process:** Define a base OS, install all necessary software (Git, Docker, language runtimes, specific testing tools, AWS CLI, etc.), configure settings, and then capture it as an AMI. Update this AMI periodically.
-* **`pre-runner-script` with Custom AMIs:** Even with a custom AMI, the `pre-runner-script` can still be useful for:
-  * Pulling the latest version of a specific tool not baked into the AMI.
-  * Setting dynamic environment variables based on workflow inputs.
-  * Performing instance-specific registration or health checks.
+Here are some recommended scripts when using various bare AMI images.
 
-### Complex `pre-runner-script` Examples
+!!! tip "Refining recommended scripts"
+    If any of these scripts do not work to initialize the runners, feel free to raise a pull request! It would be much appreciated ~ 🙏
 
-The `pre-runner-script` (an input for `refresh` mode, defining the default script for instances) can be powerful:
-
-* **Installing Multiple Packages:**
-
-    ```bash
-    #!/bin/bash
-    sudo yum update -y
-    sudo yum install -y jq git docker tree
-    sudo systemctl start docker
-    sudo systemctl enable docker
-    # Add docker user to group if needed
-    # sudo usermod -aG docker ec2-user
+??? example "Amazon Linux 2023"
+    ```yaml
+          - name: Provision Mode
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: provision
+              ami: ami-123 # <--- AL2023 image
+              pre-runner-script: |
+                #!/bin/bash
+                sudo yum update -y && \
+                sudo yum install docker -y && \
+                sudo yum install git -y && \
+                sudo yum install libicu -y && \
+                sudo systemctl enable docker
     ```
 
-* **Configuring Services or Fetching Dynamic Configurations:**
+??? example "Ubuntu 24"
+    ```yaml
+          - name: Provision Mode
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: provision
+              ami: ami-123 # <--- Ubuntu 24
+              pre-runner-script: |
+                #!/bin/bash
+                sudo apt update && sudo apt upgrade -y
+                sudo apt install -y docker.io git libicu-dev unzip curl
 
-    ```bash
-    #!/bin/bash
-    # Example: Fetch a configuration file from S3
-    # aws s3 cp s3://my-bucket/runner-config.json /etc/runner-config.json
+                # AWS CLI v2 --> x86_64
+                curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                unzip awscliv2.zip
+                sudo ./aws/install
+                rm -rf awscliv2.zip aws
 
-    # Example: Set environment variables based on instance metadata
-    # INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-    # echo "RUNNER_INSTANCE_ID=$INSTANCE_ID" >> /etc/environment 
+                sudo systemctl enable docker
+                sudo systemctl start docker
     ```
-
-* **Error Handling:**
-
-    ```bash
-    #!/bin.bash
-    set -e # Exit immediately if a command exits with a non-zero status.
-    echo "Starting pre-runner script..."
-    # Your commands here
-    sudo yum install -y my-required-package || { echo "Failed to install my-required-package"; exit 1; }
-    echo "Pre-runner script completed successfully."
-    ```
-
-* **Managing Script Versions:**
-  * For complex scripts, consider storing them in your repository and fetching the script during instance boot using `curl` or `aws s3 cp` within a very short inline `pre-runner-script`. This allows versioning the script with your code.
 
 ## 4. Resource Classes for Varied Workloads
 

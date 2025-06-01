@@ -21,7 +21,6 @@ Several inputs in the `refresh` mode control how long runners live and how often
 Defined at the `refresh` level with a default of 300s/5m. This defines how long the instance lives in the resource pool for following workflows to pickup! If in the pool for too long, the instance will be terminated by `refresh` or will undergo self-termination.
 
 ```yaml
-# used here ...
       - name: Refresh Mode
         uses: fleet-actions/ec2-runner-pool-manager@main
         with:
@@ -36,12 +35,11 @@ Defined at the `refresh` level with a default of 300s/5m. This defines how long 
 
 #### `max-runtime-min`: Expected Max Job Duration :person_running:
 
-Defined at the `refresh` level (default: 30 minutes) and overridable at the `provision` level, this parameter sets the maximum duration an instance remains active *after being assigned to a workflow but before it's released back to the pool*.
+Defined at the `refresh` level (default: 30 minutes) and overridable at the `provision` level, this parameter sets the maximum active duration for an instance *between its assignment to a workflow and its release back to the pool*.
 
-It acts as a **critical safeguard**, allowing the control plane to terminate instances if a CI job significantly exceeds its expected runtime. This prevents runaway jobs and also guards against orphaned instances that might occur due to misconfigured `release` steps in a workflow.
+It acts as a **critical safeguard**, enabling the control plane to safely terminate instances. This prevents them from being stranded due to misconfigured `release` jobs or other unforeseen issues that would otherwise leave resources unreleased.
 
 ```yaml
-# used here ...
       - name: Refresh Mode
         uses: fleet-actions/ec2-runner-pool-manager@main
         with:
@@ -52,12 +50,11 @@ It acts as a **critical safeguard**, allowing the control plane to terminate ins
 Overriding at the `provision` level. The operator can set some expectations for the controlplane to say how long a specific workflow can take from `provision` to `release` and control this timeouts at a workflow level instead of at the repo level.
 
 ```yaml
-# used here ...
       - name: Provision Mode
         uses: fleet-actions/ec2-runner-pool-manager@main
         with:
           mode: provision
-          # max-runtime-min: 30 # <---- (If not provided, uses refresh input or default)
+          # max-runtime-min: 30 # <---- (overrides refresh input if provided)
 ```
 
 ??? note "`max-runtime-min` - Shorter or Longer :thinking:"
@@ -66,22 +63,39 @@ Overriding at the `provision` level. The operator can set some expectations for 
 
 ### Instance Purchasing Options (`provision` mode)
 
-The `provision` mode offers ways to control the type and cost of EC2 instances:
+The `provision` mode offers ways to control the type and cost of EC2 instances provisioned for specific workflows.
 
-* **`usage-class`** (e.g., `spot` or `on-demand`, default `spot`):
-  * **`spot`:**
-    * **Pros:** Significant cost savings (up to 90% off On-Demand prices).
-    * **Cons:** Spot instances can be interrupted by AWS with a two-minute warning if AWS needs the capacity back. This can cause job failures if not handled gracefully (though GitHub Actions jobs are generally resumable on another runner).
-    * **Best for:** Cost-sensitive workloads, fault-tolerant jobs, development/testing environments.
-  * **`on-demand`:**
-    * **Pros:** Guaranteed availability for the duration you pay for. No interruptions.
-    * **Cons:** Higher cost compared to Spot.
-    * **Best for:** Critical production jobs, long-running tasks that cannot tolerate interruption, or when Spot capacity is constrained.
+#### `usage-class`: On-Demand or Spot Instances
 
-* **`allowed-instance-types`** (e.g., `c* m* r*`, `m5.large t3.medium`, default `c* m* r*`):
-  * **What it does:** Specifies a space-separated list of EC2 instance types or families that the action can choose from when provisioning. Wildcards (`*`) can be used.
-  * **Considerations with Spot:** When using `spot`, providing a diverse list of instance types (e.g., across different families and sizes like `m5.large m5a.large m5n.large c5.large c5a.large`) increases the likelihood of obtaining Spot capacity at your desired price and reduces the chance of interruptions. The action will typically use the cheapest available instance type from this list that meets any resource class requirements.
-  * **Considerations with On-Demand:** You might specify one or a few preferred instance types.
+You can specify whether to provision `on-demand` or `spot` instances at the workflow level using the `usage-class` input in `provision` mode. The default is `on-demand`. It's generally recommended to use `on-demand` instances for critical workflows and `spot` instances for non-critical CI tasks.
+
+```yaml
+      - name: Provision Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: provision
+          # usage-class: on-demand # <---- (Default: on-demand)
+```
+
+!!! tip " The Right Match: On-Demand vs. Spot :handshake:"
+    The control plane intelligently manages `on-demand` and `spot` instances. Since `usage-class` is defined during `provision`, workflows requesting `on-demand` instances will only be assigned available `on-demand` runners from the shared resource pool, and the same logic applies to `spot` requests. This allows you to mix and match instance types across different workflows. For example, you can explicitly set some workflows to use `spot` while others default to or are set to `on-demand`.
+
+#### `allowed-instance-types`: Instance Family types by wildcards
+
+This input accepts a space-separated list of EC2 instance types (e.g., `m5.large c6i* r*`) or family wildcards (e.g., `c*`, `m*`, `r*`) that the workflow should use. Instances matching these patterns will be selected from the existing resource pool or provisioned if new ones are needed. This capability aligns with the [AWS AllowedInstanceTypes](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-ec2-ec2fleet-instancerequirementsrequest.html) specification.
+
+The default is `c* m* r*`. This setting allows the control plane to choose from a wide array of [instance types](https://aws.amazon.com/ec2/instance-types/).
+
+```yaml
+      - name: Provision Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: provision
+          # allowed-instance-types: "c* m* r*" # <---- (Default: "c* m* r*")
+```
+
+!!! tip "Be generous with `usage-class: spot` :fish:"
+    Telling the controlplane to use spot instances for the workflow? Cast your net wide! Defer to the generous `c* m* r*` defaults to ensure that AWS always has capacities for your instances when your workflow asks for these instances.
 
 ## 3. Advanced AMI and `pre-runner-script` Strategies
 

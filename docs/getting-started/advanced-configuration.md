@@ -77,8 +77,8 @@ You can specify whether to provision `on-demand` or `spot` instances at the work
           # usage-class: on-demand # <---- (Default: on-demand)
 ```
 
-!!! tip " The Right Match: On-Demand vs. Spot :handshake:"
-    The control plane intelligently manages `on-demand` and `spot` instances. Since `usage-class` is defined during `provision`, workflows requesting `on-demand` instances will only be assigned available `on-demand` runners from the shared resource pool, and the same logic applies to `spot` requests. This allows you to mix and match instance types across different workflows. For example, you can explicitly set some workflows to use `spot` while others default to or are set to `on-demand`.
+!!! success " The Right Match: On-Demand vs. Spot :handshake:"
+    The controlplane is able to discriminate between instances which have `on-demand` or `spot` lifecycles. If none available, the contolplane creates specific instances faithful to the `usage-class` constraint.
 
 #### `allowed-instance-types`: Instance Family types by wildcards
 
@@ -97,19 +97,22 @@ The default is `c* m* r*`. This setting allows the control plane to choose from 
 !!! tip "Be generous with `usage-class: spot` :fish:"
     Telling the controlplane to use spot instances for the workflow? Cast your net wide! Defer to the generous `c* m* r*` defaults to ensure that AWS always has capacities for your instances when your workflow asks for these instances.
 
+!!! success "The Right Match: `allowed-instance-types`"
+    Similar to `usage-class`, the controlplane is able to discriminate instances from the shared resource pool given the patterns and instance types specified in `allowed-instance-types`.
+
 ## 3. Advanced AMI and `pre-runner-script` Strategies
 
 Bake as much in to the AMI image as you can to ensure timely startup times. As per [Quickstart](../getting-started/quickstart.md), feel free to use Runs-On's machine images to not worry about any of this. However if you do decide to roll your own, there are a couple of hard requirements to ensure proper functionality:
 
-- [x] `git` & `docker`: For checking out code and running containers
-- [x] `aws cli`: Instances to send and receive signals from the controlplane via dynamodb
-- [x] `libicu`: For configuring instances against github actions as a self-hosted runner
+- [x] `git` & `docker`: Checking out code and running containers
+- [x] `aws cli`: Controlplane communication via dynamodb
+- [x] `libicu`: Configuring instances against github actions as a self-hosted runner
 
 ### `pre-runner-script`
 
 Here are some recommended scripts when using various bare AMI images.
 
-!!! tip "Refining recommended scripts"
+!!! info "Refining recommended scripts"
     If any of these scripts do not work to initialize the runners, feel free to raise a pull request! It would be much appreciated ~ 🙏
 
 ??? example "Amazon Linux 2023"
@@ -152,62 +155,108 @@ Here are some recommended scripts when using various bare AMI images.
 
 ## 4. Resource Classes for Varied Workloads
 
-If your action supports the `resource-class-config` input (as indicated in the `README.md`), you can define different "flavors" of runners.
+The operator can control the size of the instances at the level of the workflow (ie. `provision`) - with sizes defined at the level of the repo (ie. `refresh`). The former is specifies the resource class of the instance for the workflow (via `resource-class`), and the latter specifies the valid resource classes (via `resource-class-config`).
 
-* **`resource-class-config` JSON Input (for `refresh` mode):**
-  * This input typically takes a JSON string defining named resource classes with specific CPU and memory (and potentially other) requirements.
-  * **Example:**
+### Pre-Defined Resource Classes & Usage
 
-        ```json
-        {
-          "default": {"cpu": 2, "mem_mb": 4096},
-          "large": {"cpu": 4, "mem_mb": 8192, "disk_gb": 100},
-          "xlarge-mem": {"cpu": 8, "mem_mb": 32768}
-        }
-        ```
+The controlplane provides a comprehensive set of resource classes that can be used at a workflow level. At the time of this writing. the defaults are the following:
 
-        *(Adjust the structure based on your action's specific implementation of resource classes.)*
+| Resource Class | CPU (cores) | Minimum Memory (MB) |
+|---------------|------------|-------------|
+| large         | 2          | 4,096       |
+| xlarge        | 4          | 8,192       |
+| 2xlarge       | 8          | 16,384      |
+| 4xlarge       | 16         | 32,768      |
+| 8xlarge       | 32         | 65,536      |
+| 12xlarge      | 48         | 98,304      |
+| 16xlarge      | 64         | 131,072     |
 
-* **Use Cases:**
-  * **Standard Builds:** Use a `default` or `medium` class.
-  * **Memory-Intensive Jobs:** (e.g., large compilations, data processing) Use an `xlarge-mem` class.
-  * **CPU-Intensive Jobs:** (e.g., complex tests, simulations) Use a `large` or `xlarge-cpu` class.
+And to use these pre-defined resource classes, simply specify the `resource-class` attribute at the `provision` level
 
-* **Specifying a Resource Class in `provision` Mode:**
-  * The `provision` mode would then typically have an input like `resource-class: large` to request a runner matching that profile.
-  * If no `resource-class` is specified, a default class (e.g., the one named "default" or the first one defined) might be used.
+```yaml
+      - name: Provision Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: provision
+          resource-class: "xlarge" # <---- (Default: "large")
+```
 
-* **Interaction with `allowed-instance-types`:**
-  * The action would use the resource class requirements (CPU, memory) to filter the list of `allowed-instance-types` to find suitable and cost-effective EC2 instances. For example, if `resource-class: large` requests 4 CPUs and 8GB RAM, the action will look for instance types in `allowed-instance-types` that meet or exceed these requirements.
+!!! tip "Greater control with `allowed-instance-types`"
+    Say that for a specific workflow, you have specified the following:
+    ```yaml
+          - name: Provision Mode
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: provision
+              resource-class: "xlarge"
+              allowed-instance-types: "c6* m5*"
+    ```
+    Then the controlplane will only pick up resources tagged with `xlarge` given that their instance types match with the `c6` and `m5` families. If none available from the pool, then only instances which fulfill these requirements will be provisioned.
 
-## 5. Security Hardening In-Depth
+!!! success "The Right Match: `resource-class`"
+    Similar to `usage-class` and `allowed-instance-types` - the controlplane is able to discriminate instances from the shared resource pool given the specified `resource-class`.
 
-Beyond the basic IAM policies in `prerequisites.md`, further hardening is crucial for production environments.
+
+??? note "Keeping consistent with AWS 📚"
+    - **Naming Convention**: Resource class names align with [AWS EC2 instance type naming](https://aws.amazon.com/ec2/instance-types/) (e.g., `large` = 2 CPU cores, `xlarge` = 4 CPU cores, etc.)
+    - **Memory Allocation**: Memory values represent minimum requirements and are set at approximately 2GB per CPU core. This ensures compatibility across the mainstream instance families:
+        - Compute-optimized instances (`c` family): ~2GB per core
+        - General-purpose instances (`m` family): ~4GB per core
+        - Memory-optimized instances (`r` family): ~8GB per core
+
+### Custom Resource Classes
+
+If you have custom requiremetns - here's an example. Note that this this overrides the pre-defined resource classes.
+
+```yaml
+# in refresh.yml
+      - name: Refresh Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: refresh
+          resource-class-config: '{ "custom-large": { "cpu": 4, "mmem": 8000 }, "custom-extra-large": { "cpu": 8, "mmem": 16000 } }'
+```
+
+```yaml
+# in ci.yml
+      - name: Provision Mode
+        uses: fleet-actions/ec2-runner-pool-manager@main
+        with:
+          mode: provision
+          resource-class: "custom-large"
+```
+
+## 5. Permissions
+
+Beyond the basic IAM policies in [Prerequisites](./prerequisites.md), feel free to further harden IAM Policies and the Networking around the provided subnets.
 
 ### IAM Least Privilege
 
-Always grant only the permissions necessary.
+#### IAM Entity for the ControlPlane
 
-* **Specific ARNs:**
-  * Instead of `Resource: "*"` in IAM policies, use specific ARNs where possible:
-    * DynamoDB: `arn:aws:dynamodb:REGION:ACCOUNT_ID:table/YOUR_TABLE_NAME`
-    * SQS: `arn:aws:sqs:REGION:ACCOUNT_ID:YOUR_QUEUE_NAME`
-    * `iam:PassRole`: `arn:aws:iam::ACCOUNT_ID:role/YOUR_EC2_INSTANCE_PROFILE_ROLE_NAME` (This is highly recommended for the action's IAM role).
-* **OpenID Connect (OIDC) for Keyless Authentication:**
-  * Instead of long-lived IAM user access keys (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), use OIDC with `aws-actions/configure-aws-credentials`. This allows your GitHub Actions workflows to assume an IAM role using short-lived credentials.
-  * **Setup Steps (High-Level):**
-        1. In AWS IAM, create an Identity Provider for GitHub.
-        2. Create an IAM Role that trusts this GitHub OIDC provider (with conditions to restrict which repositories/branches can assume it).
-        3. Attach the "Policy for GitHub Actions Workflow" (from `prerequisites.md`, but with resource ARNs tightened) to this OIDC role.
-        4. In your GitHub workflow, use `aws-actions/configure-aws-credentials` with the `role-to-assume`:
+- When configuring credentials with `aws-actions/configure-aws-credentials`, it is recommended to use [OIDC](https://github.com/aws-actions/configure-aws-credentials?tab=readme-ov-file#oidc) to prevent the usage of permanent credentials within CI.
+- `iam:PassRole` - Once you know the exact role the controlplane is passing on to the instances, I highly recommend adding its ARN to the
 
-            ```yaml
-            - name: Configure AWS Credentials
-              uses: aws-actions/configure-aws-credentials@vX # use latest version
-              with:
-                role-to-assume: arn:aws:iam::YOUR_ACCOUNT_ID:role/YOUR_GITHUB_OIDC_ROLE_NAME
-                aws-region: YOUR_AWS_REGION
-            ```
+    ```json
+    "Effect": "Allow",
+    "Action": ["iam:PassRole"],
+    "Resource": // <--- arn of the role
+    ```
+
+- SQS & DynamoDB - These resources are created with a repo-specific prefix which we can use to harden the IAM policy further `fleet-actions-ec2-runner-pool-manager`
+
+    ```json
+    // DDB
+    "Resource": "arn:aws:dynamodb:*:*:table/{repo-owner}-{repo-name}-*"
+    // SQS
+    "Resource": "arn:aws:sqs:*:*:{repo-owner}-{repo-name}-*"
+    ```
+
+#### IAM Entity for the EC2 Instance Profile
+
+If you want the runners to interact with other ... <TBC>
+
+- Self-termination - Instances are given the ability to safely self-terminate. The current recommended IAM
 
 ### Network Security
 

@@ -218,32 +218,5 @@ To get up and running, I recommend using [run-on's AWS AMI images](https://githu
           ami: ami-123 # <---
 ```
 
-### Amazon Linux 2023
-
-If you chose to use a bare Amazon Linux 2023 image, an additional script is required. This is supplied via the pre-runner-script input for mode: `refresh`
-
-```yaml
-# used here ...
-      - name: Refresh Mode
-        uses: fleet-actions/ec2-runner-pool-manager@main
-        with:
-          mode: refresh
-          # If AMI is AL2023, need to manually install the following packages
-          ami: ami-123
-          pre-runner-script: |
-            sudo yum update -y && \
-            sudo yum install docker -y && \
-            sudo yum install git -y && \
-            sudo yum install libicu -y && \
-            sudo systemctl enable docker
-          # and other refresh inputs ...
-```
-
-### Other images
-
-If you chose to use other AMI images, for the instances to function properly you need:
-
-- AWS CLI
-- Depedencies for running the github actions artifacts.
-
-These can be supplied via the `pre-runner-script` or built in your custom AMI image.
+### Other Images (Amazon Linux/Ubuntu)
+If you want to get started with other machine images, see prescriptions at [Advanced Configuration - custom AMIs and pre runner scripts](./advanced-configuration.md#3-advanced-ami-and-pre-runner-script-strategies)

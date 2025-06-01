@@ -14,7 +14,8 @@ describe('buildFleetCreationInput fn', () => {
       allowedInstanceTypes: ['c5.xlarge', 'm5.xlarge'],
       targetCapacity: 3,
       uniqueId: 'test-fleet-123',
-      runId: '777'
+      runId: '777',
+      usageClass: 'on-demand'
     }
   })
 

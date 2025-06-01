@@ -9,6 +9,7 @@ import {
 } from '../../../src/services/sqs/operations/resource-class-operations'
 import { ProcessFailedProvisionInput } from '../../../src/provision/post-provision/process-failed-provision'
 import { Instance } from '../../../src/provision/types'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 // Mock dependencies
 Object.entries({
@@ -25,13 +26,7 @@ describe('processFailedProvision', () => {
   let mockInput: ProcessFailedProvisionInput
   let mockDDBOps: MockProxy<InstanceOperations>
   let mockSQSOps: MockProxy<ResourceClassConfigOperations>
-  const generic: Instance = {
-    id: 'i-generic',
-    instanceType: 'c5.large',
-    resourceClass: 'medium',
-    cpu: 4,
-    mmem: 2048
-  }
+  const generic: Instance = GenericInstance
 
   beforeEach(() => {
     jest.clearAllMocks()

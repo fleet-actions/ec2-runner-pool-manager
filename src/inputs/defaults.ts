@@ -38,7 +38,7 @@ export const UNSPECIFIED_MAX_RUNTIME_MINUTES = -1
 
 export const PROVISION_DEFAULT = {
   'instance-count': 1,
-  'usage-class': 'spot',
+  'usage-class': 'on-demand',
   'resource-class': 'large',
   'allowed-instance-types': ['c*', 'm*', 'r*'],
   'max-runtime-min': UNSPECIFIED_MAX_RUNTIME_MINUTES

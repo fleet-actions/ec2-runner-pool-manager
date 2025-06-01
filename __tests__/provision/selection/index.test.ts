@@ -9,6 +9,7 @@ import type { InstanceOperations as EC2InstanceOperations } from '../../../src/s
 import type { HeartbeatOperations } from '../../../src/services/dynamodb/operations/heartbeat-operations'
 import type { ResourceClassConfigOperations } from '../../../src/services/sqs/operations/resource-class-operations'
 import { WorkerSignalOperations } from '../../../src/services/dynamodb/operations/signal-operations'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 // Mock dependencies
 Object.entries({
@@ -31,13 +32,7 @@ describe('selection', () => {
   let mockWorkerSignalOperations: MockProxy<WorkerSignalOperations>
   let mockEc2InstanceOperations: MockProxy<EC2InstanceOperations>
 
-  const genericInstance: Instance = {
-    id: 'i-1234567890abcdef0',
-    instanceType: 'm5.large',
-    resourceClass: 'default',
-    cpu: 2,
-    mmem: 8192
-  }
+  const genericInstance: Instance = GenericInstance
 
   beforeEach(() => {
     jest.clearAllMocks() // Clears all mocks including core and the fixture claimWorker
@@ -61,7 +56,8 @@ describe('selection', () => {
       },
       ec2Ops: { instanceOperations: mockEc2InstanceOperations },
       runId: 'test-run-id-selection',
-      instanceCount: 2
+      instanceCount: 2,
+      usageClass: 'on-demand'
     }
 
     claimWorker.mockResolvedValue({

@@ -31388,9 +31388,7 @@ function getUsageClass() {
             throw new Error(`usage-class must be 'spot' or 'on-demand', got '${raw}'`);
         }
         return raw;
-    }, 
-    // usage-class not required as we can explicitly defer to default (hopefully 'spot')
-    false, PROVISION_DEFAULT);
+    }, false, PROVISION_DEFAULT);
 }
 
 function parseReleaseInputs() {
@@ -42038,34 +42036,36 @@ function matchWildcardPatterns(patterns, instanceType) {
  *   - dont we have filters? then requeue? then cycle?
  */
 class PoolPickUpManager {
-    allowedInstanceTypes;
-    resouceClass;
-    resourceClassConfig;
-    sqsOps;
     static FREQ_TOLERANCE = 5;
     instanceFreq = {};
-    constructor(
-    // Selected resource class defined at initialization - cleaner
-    allowedInstanceTypes, resouceClass, resourceClassConfig, sqsOps) {
-        this.allowedInstanceTypes = allowedInstanceTypes;
-        this.resouceClass = resouceClass;
-        this.resourceClassConfig = resourceClassConfig;
-        this.sqsOps = sqsOps;
+    allowedInstanceTypes;
+    usageClass;
+    resourceClass;
+    resourceClassConfig;
+    sqsOps;
+    constructor(props) {
+        this.allowedInstanceTypes = props.allowedInstanceTypes;
+        this.usageClass = props.usageClass;
+        this.resourceClass = props.resourceClass;
+        this.resourceClassConfig = props.resourceClassConfig;
+        this.sqsOps = props.sqsOps;
     }
     // rc already defined, empty input
     async pickup() {
         let returnValue = null;
         while (true) {
             // CASE: queue is empty
-            const instanceMessage = await this.sqsOps.receiveAndDeleteResourceFromPool(this.resouceClass, this.resourceClassConfig);
+            const instanceMessage = await this.sqsOps.receiveAndDeleteResourceFromPool(this.resourceClass, this.resourceClassConfig);
             if (!instanceMessage) {
                 returnValue = null;
                 break;
             }
             // immediately register & validate frequency
+            // If frequency is false (meaning pool is pseudo-empty; requeue but return null)
             const freqStatus = this.registerAndValidateFrequency(instanceMessage.id);
             if (!freqStatus) {
-                coreExports.info(`We have cycled through the pool too many times, assuming empty; ${JSON.stringify(this.instanceFreq, null, 2)}`);
+                coreExports.info(`We have cycled through the pool too many times, assuming "empty". Placing back to pool but pickups are suspended; ${JSON.stringify(this.instanceFreq, null, 2)}`);
+                await this.sqsOps.sendResourceToPool(instanceMessage, this.resourceClassConfig);
                 return null;
             }
             const { status, statusMessage } = this.classifyMessage(instanceMessage);
@@ -42077,7 +42077,7 @@ class PoolPickUpManager {
                 await this.sqsOps.sendResourceToPool(instanceMessage, this.resourceClassConfig);
             }
             else if (status === 'ok') {
-                coreExports.info(`${statusMessage}; using as selected!`);
+                coreExports.info(`${statusMessage}; successful pickup from SQS (resource pool). continuing...`);
                 returnValue = instanceMessage;
                 break;
             }
@@ -42094,7 +42094,7 @@ class PoolPickUpManager {
     // - any pattern on allowedInstanceTypes (requeue)
     classifyMessage(input) {
         // all attributes used apart from id
-        const { cpu, mmem, resourceClass, instanceType } = input;
+        const { cpu, mmem, resourceClass, instanceType, usageClass } = input;
         // unlikely to proc, but if message has invalid rc from pool its been put in, then invalid
         const rc = this.resourceClassConfig[resourceClass];
         if (!rc) {
@@ -42120,6 +42120,19 @@ class PoolPickUpManager {
                 statusMessage: `The picked up instance type ${instanceType} does not match allowed instance types (${this.allowedInstanceTypes})`
             };
         }
+        // match usage class type
+        if (!usageClass) {
+            return {
+                status: 'delete',
+                statusMessage: `The picked up usage class type is not defined.`
+            };
+        }
+        else if (usageClass !== this.usageClass) {
+            return {
+                status: 'requeue',
+                statusMessage: `The picked up usage class type (${usageClass}) does not match allowed usage class type (${this.usageClass})`
+            };
+        }
         return {
             status: 'ok',
             statusMessage: 'No issue'
@@ -42140,9 +42153,15 @@ class PoolPickUpManager {
 async function selection(input) {
     coreExports.info('starting selection routine...');
     coreExports.debug(`recieved: ${JSON.stringify({ ...input, ddbOps: '', sqsOps: '' })}`);
-    const { allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps, ddbOps, ec2Ops, runId } = input;
+    const { allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps, ddbOps, ec2Ops, usageClass, runId } = input;
     // create ONE pickup manager for all
-    const poolPickupManager = new PoolPickUpManager(allowedInstanceTypes, resourceClass, resourceClassConfig, sqsOps);
+    const poolPickupManager = new PoolPickUpManager({
+        allowedInstanceTypes,
+        resourceClass,
+        resourceClassConfig,
+        sqsOps,
+        usageClass
+    });
     const requiredCount = input.instanceCount;
     const placeholderAry = Array(requiredCount).fill(0);
     const responses = await Promise.allSettled(placeholderAry.map((_, ind) => {
@@ -42212,12 +42231,24 @@ function buildFleetOverrides(subnetIds, resourceSpec, allowedInstanceTypes) {
 /**
  * Builds the target capacity specification for the fleet.
  */
-function buildTargetCapacitySpecification(instanceCount) {
-    return {
-        TotalTargetCapacity: instanceCount,
-        DefaultTargetCapacityType: 'spot',
-        SpotTargetCapacity: instanceCount
-    };
+function buildTargetCapacitySpecification({ instanceCount, usageClass }) {
+    if (usageClass === 'on-demand') {
+        return {
+            TotalTargetCapacity: instanceCount,
+            DefaultTargetCapacityType: 'on-demand',
+            OnDemandTargetCapacity: instanceCount
+        };
+    }
+    else if (usageClass === 'spot') {
+        return {
+            TotalTargetCapacity: instanceCount,
+            DefaultTargetCapacityType: 'spot',
+            SpotTargetCapacity: instanceCount
+        };
+    }
+    else {
+        throw new Error(`invalid usage class ${usageClass}`);
+    }
 }
 /**
  * Configures Spot instance options for the fleet.
@@ -42248,17 +42279,19 @@ function buildFleetTagSpecifications({ uniqueId, runId }) {
     ];
 }
 function buildFleetCreationInput(input) {
-    const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId, runId } = input;
+    const { launchTemplateName, subnetIds, resourceSpec, allowedInstanceTypes, targetCapacity, uniqueId, runId, usageClass } = input;
     // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-ec2/Interface/FleetLaunchTemplateSpecificationRequest/
     const launchTemplateSpecification = {
         LaunchTemplateName: launchTemplateName,
         Version: '$Default'
     };
     const overrides = buildFleetOverrides(subnetIds, resourceSpec, allowedInstanceTypes);
-    const targetCapacitySpec = buildTargetCapacitySpecification(targetCapacity);
-    const spotOptions = buildSpotOptions();
+    const targetCapacitySpec = buildTargetCapacitySpecification({
+        instanceCount: targetCapacity,
+        usageClass
+    });
     const tagSpecifications = buildFleetTagSpecifications({ uniqueId, runId });
-    return {
+    const fleetInput = {
         LaunchTemplateConfigs: [
             {
                 LaunchTemplateSpecification: launchTemplateSpecification,
@@ -42266,11 +42299,14 @@ function buildFleetCreationInput(input) {
             }
         ],
         TargetCapacitySpecification: targetCapacitySpec,
-        SpotOptions: spotOptions,
         Type: 'instant', // 'instant' for synchronous response with instance IDs
         TagSpecifications: tagSpecifications,
         ClientToken: uniqueId // For idempotency
     };
+    if (usageClass !== 'on-demand') {
+        fleetInput.SpotOptions = buildSpotOptions();
+    }
+    return fleetInput;
 }
 
 function processFleetResponse(input) {
@@ -42291,7 +42327,8 @@ function processFleetResponse(input) {
                 instanceType,
                 resourceClass,
                 cpu: input.cpu,
-                mmem: input.mmem
+                mmem: input.mmem,
+                usageClass: input.usageClass
             })));
         });
     }
@@ -42341,7 +42378,7 @@ function processFleetResponse(input) {
  * This function focuses ONLY on making the API call with proper parameters.
  */
 async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
-    const { launchTemplate, resourceClass, subnetIds, resourceSpec, allowedInstanceTypes, runId } = input;
+    const { launchTemplate, resourceClass, subnetIds, resourceSpec, allowedInstanceTypes, runId, usageClass } = input;
     if (!launchTemplate.name)
         throw new Error('launch template name not set, abandoning fleet creation attempt...');
     coreExports.info(`Making fleet attempt ${attemptNumber} for ${targetCapacity} instances...`);
@@ -42355,6 +42392,7 @@ async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
             allowedInstanceTypes,
             targetCapacity,
             uniqueId,
+            usageClass,
             runId // still sending initialRunId to ec2 instance tags. This for WS UD signals
         });
         coreExports.debug(`Fleet attempt ${attemptNumber} input: ${JSON.stringify(fleetInput)}`);
@@ -42365,7 +42403,8 @@ async function makeFleetAttempt(input, targetCapacity, attemptNumber = 1) {
         coreExports.info(`Response: ${JSON.stringify(response)}`);
         // 3. Process the response
         const fleetResponse = processFleetResponse({
-            ...input.resourceSpec, // cpu, mmem
+            ...resourceSpec, // cpu, mmem
+            usageClass,
             response,
             resourceClass,
             targetCapacity
@@ -42401,6 +42440,7 @@ async function fleetCreation(input) {
                 runId: input.runId,
                 resourceClass: instance.resourceClass,
                 instanceType: instance.instanceType,
+                usageClass: instance.usageClass,
                 threshold
             });
         }));
@@ -42503,7 +42543,8 @@ async function creation(input) {
         numInstancesRequired: input.numInstancesRequired,
         ec2Ops: input.ec2Ops.fleetOperations,
         ddbOps: input.ddbOps.instanceOperations,
-        runId: input.runId
+        runId: input.runId,
+        usageClass: input.usageClass
     });
     // this is where we would determine
     // Do validation if fleet creation is 'state=success' (ie. capacity pool available)
@@ -42555,7 +42596,8 @@ async function processFailedProvision(input) {
         resourceClass: instance.resourceClass,
         instanceType: instance.instanceType,
         cpu: instance.cpu,
-        mmem: instance.mmem
+        mmem: instance.mmem,
+        usageClass: instance.usageClass
     })), resourceClassConfig);
     if (response.failed.length !== 0) {
         coreExports.warning('failed to gracefully redistribute certain instances to queue');
@@ -51712,7 +51754,7 @@ class InstanceOperations extends BasicOperations {
     // PROVISION (Regisration of created instances)
     // WEAK & STRONG REGISTRATION
     // WEAK: 'created', still unknown if instance has booted up OK. state of instance on initial creation, only comms initial runId and reasonable threshold
-    async instanceCreatedRegistration({ id, runId, threshold, resourceClass, instanceType }) {
+    async instanceCreatedRegistration({ id, runId, threshold, resourceClass, instanceType, usageClass }) {
         coreExports.info(`Registering instance ${id} as 'created'`);
         // 🔍 pre-process threshold to hold standard internal isoz format
         threshold = this.getISOZDate(threshold);
@@ -51721,6 +51763,7 @@ class InstanceOperations extends BasicOperations {
             threshold,
             resourceClass,
             instanceType,
+            usageClass,
             // 🔍 on instance created registration, immediately 'created' state
             // .will be changed on running registration
             state: 'created'
@@ -54887,6 +54930,7 @@ async function provision(inputs) {
     // .given 'merged', validate presence of values. IE: resource pool URLs, etc.
     const composedInputs = await composeInputs(inputs, ddbService.getGeneralMetadataOperations());
     coreExports.debug(`Composed: ${JSON.stringify({ ...composedInputs, ghRegistrationToken: '' })}`);
+    // composedInputs.usageClass
     // SELECTION
     // selection()
     // .given resource pool, and requirements, pickup valid instance ids
@@ -54904,6 +54948,7 @@ async function provision(inputs) {
         selectionOutput = await selection({
             instanceCount: composedInputs.instanceCount,
             resourceClass: composedInputs.resourceClass,
+            usageClass: composedInputs.usageClass,
             // 🔍 for knowing which queue to ref & requeueing
             resourceClassConfig: composedInputs.resourceClassConfig,
             allowedInstanceTypes: composedInputs.allowedInstanceTypes,
@@ -57091,7 +57136,8 @@ async function releaseWorker(inputs) {
             resourceClass: instanceItem.resourceClass,
             instanceType: instanceItem.instanceType,
             cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
-            mmem: resourceClassConfig[instanceItem.resourceClass].mmem
+            mmem: resourceClassConfig[instanceItem.resourceClass].mmem,
+            usageClass: instanceItem.usageClass
         };
         await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig);
         coreExports.info(`[WORKER ${workerNum}] Has now safely sent ${instanceId} to ${instanceItem.resourceClass} pool`);

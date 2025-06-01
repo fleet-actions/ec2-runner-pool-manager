@@ -35,7 +35,8 @@ describe('processFleetResponse', () => {
       resourceClass: 'default-class',
       targetCapacity: 2,
       cpu: 4,
-      mmem: 2048
+      mmem: 2048,
+      usageClass: 'on-demand'
     }
   })
 

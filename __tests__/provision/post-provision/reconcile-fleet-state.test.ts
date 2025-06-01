@@ -6,6 +6,7 @@ import {
   Instance,
   SelectionOutput
 } from '../../../src/provision/types'
+import { GenericInstance } from '../../../__fixtures__/generic.js'
 
 Object.entries({
   '@actions/core': core
@@ -21,13 +22,7 @@ describe('ReconcileFleetState', () => {
   describe('Control Flow', () => {
     let mockSelectionOutput: SelectionOutput
     let mockCreationOutput: CreationOuput
-    const generic: Instance = {
-      id: 'i-generic',
-      instanceType: 'c5.large',
-      resourceClass: 'medium',
-      cpu: 4,
-      mmem: 2048
-    }
+    const generic: Instance = GenericInstance
 
     beforeEach(() => {
       jest.clearAllMocks()

@@ -18,16 +18,18 @@ export async function selection(
     sqsOps,
     ddbOps,
     ec2Ops,
+    usageClass,
     runId
   } = input
 
   // create ONE pickup manager for all
-  const poolPickupManager = new PoolPickUpManager(
+  const poolPickupManager = new PoolPickUpManager({
     allowedInstanceTypes,
     resourceClass,
     resourceClassConfig,
-    sqsOps
-  )
+    sqsOps,
+    usageClass
+  })
 
   const requiredCount = input.instanceCount
   const placeholderAry = Array(requiredCount).fill(0)

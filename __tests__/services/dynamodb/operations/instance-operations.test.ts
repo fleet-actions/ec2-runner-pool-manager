@@ -3,6 +3,7 @@ import { jest } from '@jest/globals'
 import { DynamoDBClient } from '../../../../src/services/dynamodb/dynamo-db-client'
 import { startDb, stopDb, createTables, deleteTables } from 'jest-dynalite'
 import * as core from '../../../../__fixtures__/core.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 // Mock @actions/core
 Object.entries({
@@ -41,6 +42,7 @@ describe('InstanceOperations', () => {
       threshold: futureDate,
       resourceClass: 'standard',
       instanceType: 't3.micro',
+      usageClass: 'on-demand' as UsageClassType,
       state: 'idle' as const
     }
     beforeEach(async () => {
@@ -113,7 +115,8 @@ describe('InstanceOperations', () => {
         runId: 'run-created',
         threshold: futureDate,
         resourceClass: 'premium',
-        instanceType: 't3.large'
+        instanceType: 't3.large',
+        usageClass: 'on-demand'
       })
 
       expect(result).toBe(true)
@@ -135,7 +138,8 @@ describe('InstanceOperations', () => {
         runId: 'run-dup',
         threshold: futureDate,
         resourceClass: 'standard',
-        instanceType: 't3.micro'
+        instanceType: 't3.micro',
+        usageClass: 'on-demand'
       })
 
       // Try to register the same instance again
@@ -144,7 +148,8 @@ describe('InstanceOperations', () => {
         runId: 'run-dup-2', // Different run ID
         threshold: futureDate,
         resourceClass: 'premium',
-        instanceType: 't3.large'
+        instanceType: 't3.large',
+        usageClass: 'on-demand'
       })
 
       expect(result).toBe(false)
@@ -169,7 +174,8 @@ describe('InstanceOperations', () => {
         runId: 'run-transition',
         threshold: futureDate,
         resourceClass: 'standard',
-        instanceType: 't3.micro'
+        instanceType: 't3.micro',
+        usageClass: 'on-demand'
       })
     })
 
@@ -226,7 +232,8 @@ describe('InstanceOperations', () => {
           threshold: futureDate,
           resourceClass: 'standard',
           instanceType: 't3.micro',
-          state: 'running'
+          state: 'running',
+          usageClass: 'on-demand'
         },
         true
       )
@@ -317,7 +324,8 @@ describe('InstanceOperations', () => {
           threshold: futureDate,
           resourceClass: 'standard',
           instanceType: 't3.micro',
-          state: 'running'
+          state: 'running',
+          usageClass: 'on-demand'
         },
         true
       )
@@ -330,7 +338,8 @@ describe('InstanceOperations', () => {
           threshold: pastDate,
           resourceClass: 'standard',
           instanceType: 't3.micro',
-          state: 'running'
+          state: 'running',
+          usageClass: 'on-demand'
         },
         true
       )
@@ -454,7 +463,8 @@ describe('InstanceOperations', () => {
             threshold: futureDate,
             resourceClass: 'standard',
             instanceType: 't3.micro',
-            state: 'idle'
+            state: 'idle',
+            usageClass: 'on-demand'
           },
           true
         )
@@ -549,7 +559,8 @@ describe('InstanceOperations', () => {
         threshold: pastDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'running'
+        state: 'running',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-expired-idle', {
@@ -557,7 +568,8 @@ describe('InstanceOperations', () => {
         threshold: pastDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-active-running', {
@@ -565,7 +577,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'running'
+        state: 'running',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-terminated', {
@@ -573,7 +586,8 @@ describe('InstanceOperations', () => {
         threshold: '',
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'terminated'
+        state: 'terminated',
+        usageClass: 'on-demand'
       })
     })
 
@@ -629,7 +643,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-del2', {
@@ -637,7 +652,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-del3', {
@@ -645,7 +661,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
     })
 
@@ -685,7 +702,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'running'
+        state: 'running',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-run1-2', {
@@ -693,7 +711,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'premium',
         instanceType: 't3.large',
-        state: 'running'
+        state: 'running',
+        usageClass: 'on-demand'
       })
 
       await instances.putInstanceItem('i-run2', {
@@ -701,7 +720,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
     })
 
@@ -721,7 +741,8 @@ describe('InstanceOperations', () => {
         threshold: futureDate,
         resourceClass: 'standard',
         instanceType: 't3.micro',
-        state: 'idle'
+        state: 'idle',
+        usageClass: 'on-demand'
       })
 
       const emptyRun = await instances.getInstancesByRunId('')

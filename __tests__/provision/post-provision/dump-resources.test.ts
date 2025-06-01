@@ -6,6 +6,7 @@ import { InstanceOperations as DDBInstanceOperations } from '../../../src/servic
 import { InstanceOperations as EC2InstanceOperations } from '../../../src/services/ec2/operations/instance-operations'
 import { DumpResourcesInput } from '../../../src/provision/post-provision/dump-resources'
 import { Instance } from '../../../src/provision/types'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 // Mock dependencies
 Object.entries({
@@ -23,13 +24,7 @@ describe('dumpResources', () => {
   let mockDDBOps: MockProxy<DDBInstanceOperations>
   let mockEC2Ops: MockProxy<EC2InstanceOperations>
 
-  const generic: Instance = {
-    id: 'i-generic',
-    instanceType: 'c5.large',
-    resourceClass: 'medium',
-    cpu: 4,
-    mmem: 2048
-  }
+  const generic: Instance = GenericInstance
 
   beforeEach(() => {
     jest.clearAllMocks()

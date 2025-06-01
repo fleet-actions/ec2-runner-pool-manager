@@ -5,6 +5,7 @@ import * as core from '../../../__fixtures__/core'
 import { InstanceOperations } from '../../../src/services/dynamodb/operations/instance-operations'
 import type { ProcessSuccessfulProvisionInputs } from '../../../src/provision/post-provision/process-successful-provision'
 import { Instance } from '../../../src/provision/types'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 // Mock dependencies
 Object.entries({
@@ -20,13 +21,7 @@ const { processSuccessfulProvision } = await import(
 describe('processSuccessfulProvision', () => {
   let mockInput: ProcessSuccessfulProvisionInputs
   let mockInstanceOperations: MockProxy<InstanceOperations>
-  const generic: Instance = {
-    id: 'i-generic',
-    instanceType: 'c5.large',
-    resourceClass: 'medium',
-    cpu: 4,
-    mmem: 2048
-  }
+  const generic: Instance = GenericInstance
 
   beforeEach(() => {
     jest.clearAllMocks()

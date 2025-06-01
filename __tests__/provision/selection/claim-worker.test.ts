@@ -13,6 +13,7 @@ import { Instance } from '../../../src/provision/types'
 
 // Import the function to test and its input type
 import type { ClaimWorkerInput } from '../../../src/provision/selection/claim-worker'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 // Mock @actions/core
 Object.entries({
@@ -41,11 +42,12 @@ describe('claimWorker', () => {
   const workerNum = 1
 
   const createMockInstance = (id: string): Instance => ({
+    ...GenericInstance,
     id,
-    resourceClass: sampleResourceClass,
-    instanceType: 'm5.large',
-    cpu: 4,
-    mmem: 8192
+    resourceClass: sampleResourceClass
+    // instanceType: 'm5.large',
+    // cpu: 4,
+    // mmem: 8192
     // Add other necessary Instance properties if needed by claimWorker's logic directly
     // For these tests, only 'id' is directly used from the instance by claimWorker itself.
   })

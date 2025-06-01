@@ -5,6 +5,7 @@ import { HeartbeatOperations } from '../../../src/services/dynamodb/operations/h
 import { WorkerSignalOperations } from '../../../src/services/dynamodb/operations/signal-operations'
 import { FleetValidationInputs } from '../../../src/provision/creation/fleet-validation'
 import { Instance } from '../../../src/provision/types'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 Object.entries({
   '@actions/core': core
@@ -21,13 +22,7 @@ describe('FleetValidation', () => {
     let mockInput: FleetValidationInputs
     let mockWorkerSignalOps: MockProxy<WorkerSignalOperations>
     let mockHeartbeatOps: MockProxy<HeartbeatOperations>
-    const generic: Instance = {
-      id: 'i-generic',
-      instanceType: 'c5.large',
-      resourceClass: 'medium',
-      cpu: 4,
-      mmem: 2048
-    }
+    const generic: Instance = GenericInstance
 
     beforeEach(() => {
       jest.clearAllMocks()

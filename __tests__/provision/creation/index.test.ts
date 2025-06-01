@@ -8,6 +8,7 @@ import {
 import * as core from '../../../__fixtures__/core'
 import { CreationInput, Instance } from '../../../src/provision/types'
 import { InstanceOperations } from '../../../src/services/ec2/operations/instance-operations'
+import { GenericInstance } from '../../../__fixtures__/generic'
 
 Object.entries({
   '@actions/core': core,
@@ -23,13 +24,7 @@ const { creation } = await import('../../../src/provision/creation/index')
 describe('Creation', () => {
   let mockInput: CreationInput
   let instanceOperations: MockProxy<InstanceOperations>
-  const generic: Instance = {
-    id: 'i-generic',
-    instanceType: 'c5.large',
-    resourceClass: 'medium',
-    cpu: 4,
-    mmem: 2048
-  }
+  const generic: Instance = GenericInstance
 
   beforeEach(() => {
     jest.clearAllMocks()

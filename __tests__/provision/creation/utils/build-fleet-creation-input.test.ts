@@ -14,17 +14,82 @@ describe('buildFleetCreationInput fn', () => {
       allowedInstanceTypes: ['c5.xlarge', 'm5.xlarge'],
       targetCapacity: 3,
       uniqueId: 'test-fleet-123',
-      runId: '777'
+      runId: '777',
+      usageClass: 'on-demand'
     }
   })
 
   // 📝 Comment out if too brittle
-  it('creates a fully valid CreateFleetCommandInput', () => {
-    // Use default input as is
+  it('creates a fully valid CreateFleetCommandInput for on-demand usageClass', () => {
+    // Use default input as is (on-demand)
     const result = buildFleetCreationInput(defaultInput)
 
     // performs ts type checking
-    const config: CreateFleetCommandInput = {
+    const expectedConfig: CreateFleetCommandInput = {
+      LaunchTemplateConfigs: [
+        {
+          LaunchTemplateSpecification: {
+            LaunchTemplateName: 'runner-template',
+            Version: '$Default'
+          },
+          Overrides: [
+            {
+              SubnetId: 'subnet-123',
+              InstanceRequirements: {
+                VCpuCount: { Min: 4, Max: 4 },
+                MemoryMiB: { Min: 8192 },
+                AllowedInstanceTypes: ['c5.xlarge', 'm5.xlarge'],
+                BurstablePerformance: 'excluded'
+              }
+            },
+            {
+              SubnetId: 'subnet-456',
+              InstanceRequirements: {
+                VCpuCount: { Min: 4, Max: 4 },
+                MemoryMiB: { Min: 8192 },
+                AllowedInstanceTypes: ['c5.xlarge', 'm5.xlarge'],
+                BurstablePerformance: 'excluded'
+              }
+            }
+          ]
+        }
+      ],
+      TargetCapacitySpecification: {
+        TotalTargetCapacity: 3,
+        DefaultTargetCapacityType: 'on-demand', // Changed for on-demand
+        OnDemandTargetCapacity: 3 // Changed for on-demand
+      },
+      // SpotOptions should be undefined for on-demand
+      Type: 'instant',
+      TagSpecifications: [
+        {
+          ResourceType: 'fleet',
+          Tags: [
+            { Key: 'Name', Value: 'ec2-runner-pool-fleet-test-fleet-123' },
+            { Key: 'Purpose', Value: 'RunnerPoolProvisioning' }
+          ]
+        },
+        {
+          ResourceType: 'instance',
+          Tags: [
+            { Key: 'AllowSelfTermination', Value: 'true' },
+            { Key: 'InitialRunId', Value: '777' }
+          ]
+        }
+      ],
+      ClientToken: 'test-fleet-123'
+    }
+
+    // match object structure
+    // https://jestjs.io/docs/using-matchers
+    expect(result).toEqual(expectedConfig)
+  })
+
+  it('creates a fully valid CreateFleetCommandInput for spot usageClass', () => {
+    const spotInput = { ...defaultInput, usageClass: 'spot' as const }
+    const result = buildFleetCreationInput(spotInput)
+
+    const expectedConfig: CreateFleetCommandInput = {
       LaunchTemplateConfigs: [
         {
           LaunchTemplateSpecification: {
@@ -80,14 +145,11 @@ describe('buildFleetCreationInput fn', () => {
       ],
       ClientToken: 'test-fleet-123'
     }
-
-    // match object structure
-    // https://jestjs.io/docs/using-matchers
-    expect(result).toEqual(config)
+    expect(result).toEqual(expectedConfig)
   })
 
-  it('creates valid fleet creation input with all parameters', () => {
-    // Use default input as is
+  it('creates valid fleet creation input with all parameters for on-demand', () => {
+    // Use default input (on-demand)
     const result = buildFleetCreationInput(defaultInput)
 
     // Verify structure and important fields
@@ -99,11 +161,17 @@ describe('buildFleetCreationInput fn', () => {
     })
     expect(result.LaunchTemplateConfigs?.[0].Overrides).toHaveLength(2)
     expect(result.TargetCapacitySpecification?.TotalTargetCapacity).toBe(3)
+    expect(result.SpotOptions).toBeUndefined() // Changed for on-demand
+    expect(result.Type).toBe('instant')
+    expect(result.ClientToken).toBe('test-fleet-123')
+  })
+
+  it('creates valid fleet creation input with SpotOptions for spot', () => {
+    const spotInput = { ...defaultInput, usageClass: 'spot' as const }
+    const result = buildFleetCreationInput(spotInput)
     expect(result.SpotOptions?.AllocationStrategy).toBe(
       'price-capacity-optimized'
     )
-    expect(result.Type).toBe('instant')
-    expect(result.ClientToken).toBe('test-fleet-123')
   })
 
   it('should only use the default launch template', () => {
@@ -161,21 +229,6 @@ describe('buildFleetCreationInput fn', () => {
       })
     })
 
-    it('should only provision spot instances', () => {
-      const result = buildFleetCreationInput(defaultInput)
-
-      expect(
-        result.TargetCapacitySpecification?.DefaultTargetCapacityType
-      ).toBe('spot')
-      expect(result.TargetCapacitySpecification?.SpotTargetCapacity).toBe(
-        defaultInput.targetCapacity
-      )
-      expect(
-        result.TargetCapacitySpecification?.OnDemandTargetCapacity
-      ).toBeUndefined()
-      expect(result.SpotOptions).toBeDefined()
-    })
-
     it('includes all allowed instance types in requirements', () => {
       // Modify just the instance types and CPU/memory
       defaultInput.allowedInstanceTypes = [
@@ -198,14 +251,31 @@ describe('buildFleetCreationInput fn', () => {
       expect(instanceReqs?.MemoryMiB).toEqual({ Min: 16384 })
     })
 
-    it('all target capacities should be comitted to spot only', () => {
+    it('should commit all target capacity to on-demand when usageClass is on-demand', () => {
       // Modify just the capacity
       defaultInput.targetCapacity = 5
+      const result = buildFleetCreationInput(defaultInput) // defaultInput is on-demand
 
-      const result = buildFleetCreationInput(defaultInput)
+      expect(result.TargetCapacitySpecification?.TotalTargetCapacity).toBe(5)
+      expect(result.TargetCapacitySpecification?.OnDemandTargetCapacity).toBe(5)
+      expect(
+        result.TargetCapacitySpecification?.SpotTargetCapacity
+      ).toBeUndefined()
+    })
+
+    it('should commit all target capacity to spot when usageClass is spot', () => {
+      const spotInput = {
+        ...defaultInput,
+        targetCapacity: 5,
+        usageClass: 'spot' as const
+      }
+      const result = buildFleetCreationInput(spotInput)
 
       expect(result.TargetCapacitySpecification?.TotalTargetCapacity).toBe(5)
       expect(result.TargetCapacitySpecification?.SpotTargetCapacity).toBe(5)
+      expect(
+        result.TargetCapacitySpecification?.OnDemandTargetCapacity
+      ).toBeUndefined()
     })
   })
 
@@ -232,6 +302,40 @@ describe('buildFleetCreationInput fn', () => {
       defaultInput.subnetIds = ['subnet-abc']
       result = buildFleetCreationInput(defaultInput)
       expect(result.LaunchTemplateConfigs?.[0].Overrides).toHaveLength(1)
+    })
+
+    it('should correctly configure for on-demand instances when usageClass is on-demand', () => {
+      const result = buildFleetCreationInput(defaultInput) // defaultInput is on-demand
+
+      expect(
+        result.TargetCapacitySpecification?.DefaultTargetCapacityType
+      ).toBe('on-demand')
+      expect(result.TargetCapacitySpecification?.OnDemandTargetCapacity).toBe(
+        defaultInput.targetCapacity
+      )
+      expect(
+        result.TargetCapacitySpecification?.SpotTargetCapacity
+      ).toBeUndefined()
+      expect(result.SpotOptions).toBeUndefined()
+    })
+
+    it('should correctly configure for spot instances when usageClass is spot', () => {
+      const spotInput = { ...defaultInput, usageClass: 'spot' as const }
+      const result = buildFleetCreationInput(spotInput)
+
+      expect(
+        result.TargetCapacitySpecification?.DefaultTargetCapacityType
+      ).toBe('spot')
+      expect(result.TargetCapacitySpecification?.SpotTargetCapacity).toBe(
+        spotInput.targetCapacity
+      )
+      expect(
+        result.TargetCapacitySpecification?.OnDemandTargetCapacity
+      ).toBeUndefined()
+      expect(result.SpotOptions).toBeDefined()
+      expect(result.SpotOptions?.AllocationStrategy).toBe(
+        'price-capacity-optimized'
+      )
     })
   })
 

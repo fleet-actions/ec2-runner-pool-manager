@@ -5,6 +5,7 @@ import type { FleetResult } from '../types.js'
 import type { LTDatav2, ResourceSpec } from '../../services/types.js'
 import type { FleetOperations } from '../../services/ec2/operations/fleet-operations.js'
 import { InstanceOperations } from '../../services/dynamodb/operations/instance-operations.js'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 export interface FleetCreationInput {
   launchTemplate: LTDatav2
@@ -16,6 +17,7 @@ export interface FleetCreationInput {
   ec2Ops: FleetOperations
   ddbOps: InstanceOperations
   runId: string
+  usageClass: UsageClassType
 }
 
 export type MakeFleetAttemptInput = Omit<
@@ -38,7 +40,8 @@ export async function makeFleetAttempt(
     subnetIds,
     resourceSpec,
     allowedInstanceTypes,
-    runId
+    runId,
+    usageClass
   } = input
 
   if (!launchTemplate.name)
@@ -59,6 +62,7 @@ export async function makeFleetAttempt(
       allowedInstanceTypes,
       targetCapacity,
       uniqueId,
+      usageClass,
       runId // still sending initialRunId to ec2 instance tags. This for WS UD signals
     })
 
@@ -75,7 +79,8 @@ export async function makeFleetAttempt(
 
     // 3. Process the response
     const fleetResponse = processFleetResponse({
-      ...input.resourceSpec, // cpu, mmem
+      ...resourceSpec, // cpu, mmem
+      usageClass,
       response,
       resourceClass,
       targetCapacity
@@ -123,6 +128,7 @@ export async function fleetCreation(
           runId: input.runId,
           resourceClass: instance.resourceClass,
           instanceType: instance.instanceType,
+          usageClass: instance.usageClass,
           threshold
         })
       })

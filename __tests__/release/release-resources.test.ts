@@ -63,7 +63,8 @@ describe('releaseResources', () => {
       threshold: nowISO, // Added: Important for state transitions, using current time as a default
       runId: runIdInput || sampleRunId, // Uses input or a default sampleRunId
       resourceClass: sampleResourceClass, // From config
-      instanceType: sampleInstanceType // Added: From config
+      instanceType: sampleInstanceType, // Added: From config
+      usageClass: 'on-demand'
     }
   }
 

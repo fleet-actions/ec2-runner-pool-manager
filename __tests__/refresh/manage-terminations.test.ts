@@ -49,6 +49,7 @@ describe('manageTerminations', () => {
       identifier: id,
       resourceClass: 'test-rc', // Included as per InstanceItem
       instanceType: 'm5.large', // Included as per InstanceItem
+      usageClass: 'on-demand',
       state,
       runId,
       threshold: threshold || new Date(Date.now() - 3600 * 1000).toISOString() // Expired an hour ago by default

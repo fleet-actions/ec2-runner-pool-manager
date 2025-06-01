@@ -7,6 +7,7 @@ import {
   InstanceMessage
 } from '../../../src/services/sqs/operations/resource-class-operations' // Adjust path if needed
 import type { ResourceClassConfig } from '../../../src/services/types' // Adjust path if needed
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 Object.entries({
   '@actions/core': core
@@ -28,6 +29,7 @@ describe('PoolPickUpManager#pickup', () => {
   let mockAllowedInstanceTypes: string[]
 
   const sampleRC = 'large'
+  const sampleUsageClass: UsageClassType = 'spot'
   const sampleQueueUrl = 'https://sqs.region.amazonaws.com/123/test-queue'
 
   const createInstanceMessage = (
@@ -38,6 +40,7 @@ describe('PoolPickUpManager#pickup', () => {
     instanceType: 'c5.large',
     cpu: 4,
     mmem: 8192,
+    usageClass: sampleUsageClass,
     ...overrides
   })
 
@@ -59,12 +62,13 @@ describe('PoolPickUpManager#pickup', () => {
     mockSqsOps.receiveAndDeleteResourceFromPool.mockResolvedValue(null)
     mockSqsOps.sendResourceToPool.mockResolvedValue(undefined)
 
-    manager = new PoolPickUpManager(
-      mockAllowedInstanceTypes,
-      sampleRC,
-      mockResourceClassConfig,
-      mockSqsOps
-    )
+    manager = new PoolPickUpManager({
+      allowedInstanceTypes: mockAllowedInstanceTypes,
+      resourceClass: sampleRC,
+      resourceClassConfig: mockResourceClassConfig,
+      sqsOps: mockSqsOps,
+      usageClass: sampleUsageClass
+    })
   })
 
   it('should return a message if one is available, valid, and instance type matches', async () => {
@@ -87,13 +91,12 @@ describe('PoolPickUpManager#pickup', () => {
     expect(result).toBeNull()
   })
 
-  it('should return null if frequency tolerance is exceeded for seen messages', async () => {
+  it('should return null if frequency tolerance is exceeded for seen messages and requeue the final message as well', async () => {
     const frequentMsg = createInstanceMessage({
       id: 'i-frequent',
-      instanceType: 'c5.large'
+      instanceType: 'c5.large' // This should be a type that passes classification
     })
     const tolerance = PoolPickUpManager.FREQ_TOLERANCE
-    // matchWildcardPatterns.mockReturnValue(true) // Assume type is valid, so message is 'ok'
 
     // Mock SQS to always return this 'ok' message when pickup is called
     mockSqsOps.receiveAndDeleteResourceFromPool.mockResolvedValue(frequentMsg)
@@ -119,9 +122,12 @@ describe('PoolPickUpManager#pickup', () => {
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining('We have cycled through the pool too many times')
     )
-    // sendResourceToPool should not have been called since the message was 'ok' each time
-    // until the frequency limit was hit on the final attempt.
-    expect(mockSqsOps.sendResourceToPool).not.toHaveBeenCalled()
+    // sendResourceToPool should have been called once for the last message that hit the limit.
+    expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledTimes(1)
+    expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledWith(
+      frequentMsg,
+      mockResourceClassConfig
+    )
   })
 
   it('should discard message and retry if its resourceClass is invalid, then pick next valid', async () => {
@@ -231,35 +237,13 @@ describe('PoolPickUpManager#pickup', () => {
       .mockResolvedValueOnce(typeMismatchMsg)
       .mockResolvedValueOnce(validMsg)
 
-    // matchWildcardPatterns
-    //   .mockReturnValueOnce(false) // For typeMismatchMsg
-    //   .mockReturnValueOnce(true) // For validMsg
-
+    // This is test is complete. We can see that
     const result = await manager.pickup()
     expect(result).toEqual(validMsg)
-    // expect(core.warning).toHaveBeenCalledWith(
-    //   expect.stringContaining(
-    //     `The picked up instance type ${typeMismatchMsg.instanceType} does not match allowed instance types (${mockAllowedInstanceTypes.join(',')}); placing back to pool; picking up another from pool`
-    //   )
-    // )
-    // expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledTimes(1)
-    // expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledWith(
-    //   typeMismatchMsg,
-    //   mockResourceClassConfig
-    // )
-    // expect(mockSqsOps.receiveAndDeleteResourceFromPool).toHaveBeenCalledTimes(
-    //   2
-    // )
-    // expect(matchWildcardPatterns).toHaveBeenNthCalledWith(
-    //   1,
-    //   mockAllowedInstanceTypes,
-    //   typeMismatchMsg.instanceType
-    // )
-    // expect(matchWildcardPatterns).toHaveBeenNthCalledWith(
-    //   2,
-    //   mockAllowedInstanceTypes,
-    //   validMsg.instanceType
-    // )
+    expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledWith(
+      typeMismatchMsg,
+      mockResourceClassConfig
+    )
   })
 
   it('should eventually return null if all messages are requeued (due to type mismatch) until frequency limit or empty queue', async () => {
@@ -299,7 +283,7 @@ describe('PoolPickUpManager#pickup', () => {
     // pickup -> receive (msg1) -> register (id, FREQ_TOLERANCE) -> classify (requeue) -> send back
     // pickup -> receive (msg1) -> register (id, FREQ_TOLERANCE+1) -> THIS register call returns false.
     // So, receiveAndDeleteResourceFromPool is called FREQ_TOLERANCE + 1 times.
-    // And sendResourceToPool is called FREQ_TOLERANCE times.
+    // And sendResourceToPool is called FREQ_TOLERANCE + 1 times.
     // And matchWildcardPatterns is called FREQ_TOLERANCE times.
 
     expect(mockSqsOps.receiveAndDeleteResourceFromPool).toHaveBeenCalledTimes(
@@ -308,7 +292,7 @@ describe('PoolPickUpManager#pickup', () => {
 
     // send back test
     expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledTimes(
-      PoolPickUpManager.FREQ_TOLERANCE
+      PoolPickUpManager.FREQ_TOLERANCE + 1 // (+1 due to last requeueing on frequency limit)
     )
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining('We have cycled through the pool too many times')

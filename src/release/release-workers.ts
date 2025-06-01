@@ -56,7 +56,8 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
       resourceClass: instanceItem.resourceClass,
       instanceType: instanceItem.instanceType,
       cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
-      mmem: resourceClassConfig[instanceItem.resourceClass].mmem
+      mmem: resourceClassConfig[instanceItem.resourceClass].mmem,
+      usageClass: instanceItem.usageClass
     }
     await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig)
     core.info(

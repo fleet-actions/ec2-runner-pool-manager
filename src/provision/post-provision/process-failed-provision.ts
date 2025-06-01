@@ -53,7 +53,8 @@ export async function processFailedProvision(
       resourceClass: instance.resourceClass,
       instanceType: instance.instanceType,
       cpu: instance.cpu,
-      mmem: instance.mmem
+      mmem: instance.mmem,
+      usageClass: instance.usageClass
     })),
     resourceClassConfig
   )

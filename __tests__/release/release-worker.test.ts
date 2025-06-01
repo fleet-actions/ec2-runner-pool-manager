@@ -14,6 +14,7 @@ import {
 import { ResourceClassConfig } from '../../src/services/types'
 import { Timing } from '../../src/services/constants'
 import { ReleaseWorkerInputs } from '../../src/release/release-workers'
+import { UsageClassType } from '@aws-sdk/client-ec2'
 
 // Mock @actions/core
 jest.unstable_mockModule('@actions/core', () => core)
@@ -34,6 +35,7 @@ describe('releaseWorker', () => {
   const sampleWorkerNum = 1 // workerNum is still logged, but we won't assert the log
   const sampleCpu = 4
   const sampleMmem = 16384
+  const sameUsageClass: UsageClassType = 'on-demand'
 
   const sampleResourceClassConfig: ResourceClassConfig = {
     [sampleResourceClass]: {
@@ -53,7 +55,8 @@ describe('releaseWorker', () => {
     updatedAt: new Date().toISOString(),
     state: 'running',
     threshold: new Date().toISOString(),
-    runId: sampleRunId
+    runId: sampleRunId,
+    usageClass: sameUsageClass
   }
 
   beforeEach(() => {
@@ -97,7 +100,8 @@ describe('releaseWorker', () => {
       resourceClass: sampleResourceClass,
       instanceType: sampleInstanceType,
       cpu: sampleCpu,
-      mmem: sampleMmem
+      mmem: sampleMmem,
+      usageClass: sameUsageClass
     }
     expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledWith(
       expectedInstanceMessage,

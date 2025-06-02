@@ -65,7 +65,7 @@ Overriding at the `provision` level. The operator can set some expectations for 
 
 The `provision` mode offers ways to control the type and cost of EC2 instances provisioned for specific workflows.
 
-#### `usage-class`: On-Demand or Spot Instances
+#### `usage-class`: On-Demand vs Spot
 
 You can specify whether to provision `on-demand` or `spot` instances at the workflow level using the `usage-class` input in `provision` mode. The default is `on-demand`. It's generally recommended to use `on-demand` instances for critical workflows and `spot` instances for non-critical CI tasks.
 
@@ -80,7 +80,7 @@ You can specify whether to provision `on-demand` or `spot` instances at the work
 !!! success " The Right Match: On-Demand vs. Spot :handshake:"
     The controlplane is able to discriminate between instances which have `on-demand` or `spot` lifecycles. If none available, the contolplane creates specific instances faithful to the `usage-class` constraint.
 
-#### `allowed-instance-types`: Instance Family types by wildcards
+#### `allowed-instance-types`: Instance types by wildcards
 
 This input accepts a space-separated list of EC2 instance types (e.g., `m5.large c6i* r*`) or family wildcards (e.g., `c*`, `m*`, `r*`) that the workflow should use. Instances matching these patterns will be selected from the existing resource pool or provisioned if new ones are needed. This capability aligns with the [AWS AllowedInstanceTypes](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-ec2-ec2fleet-instancerequirementsrequest.html) specification.
 
@@ -100,7 +100,7 @@ The default is `c* m* r*`. This setting allows the control plane to choose from 
 !!! success "The Right Match: `allowed-instance-types`"
     Similar to `usage-class`, the controlplane is able to discriminate instances from the shared resource pool given the patterns and instance types specified in `allowed-instance-types`.
 
-## 3. Advanced AMI and `pre-runner-script` Strategies
+## 3. Some AMI and `pre-runner-script` strategies
 
 Bake as much in to the AMI image as you can to ensure timely startup times. As per [Quickstart](../getting-started/quickstart.md), feel free to use Runs-On's machine images to not worry about any of this. However if you do decide to roll your own, there are a couple of hard requirements to ensure proper functionality:
 
@@ -263,7 +263,7 @@ At a minimum, the role given to the instance needs to be able to self-terminate 
     If your self-hosted runner needs to communicate with other AWS services (ie. `s3`), feel free to expand the EC2 instance profile - but always ensure that the minimum permissions specified here are included.
 
 ??? tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
-    [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html) is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance profile with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). When used with Machine Images built on Amazon Linux 2023 and Ubuntu - Session Manager should work out of the box as the [SSM Agent is pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) 🤩
+    [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html) is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance role with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). When used with Machine Images built on Amazon Linux 2023 and Ubuntu - Session Manager should work out of the box as the [SSM Agent is pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) 🤩
 
 
 ### Network Security

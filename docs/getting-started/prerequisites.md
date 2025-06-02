@@ -200,8 +200,7 @@ To quickly get started, **use the AWS console** to [create an IAM Role](https://
           iam-instance-profile: your-instance-profile # <---
 ```
 
-!!! note "Note: Further Hardening"
-    The example policies above are provided as a guide. They can and most likely should be limited even more by specifying the resources (e.g., specific DynamoDB table ARNs, SQS queue ARNs, specific IAM roles for `PassRole`) rather than using `*`. Restricting `iam:PassRole` to only the specific instance profile role is highly recommended.
+The example policies above are provided as a guide - See [Advanced Configuration](./advanced-configuration.md#iam-least-privilege) for hardening!
 
 ## 5. Machine Image
 
@@ -219,4 +218,5 @@ To get up and running, I recommend using [run-on's AWS AMI images](https://githu
 ```
 
 ### Other Images (Amazon Linux/Ubuntu)
+
 If you want to get started with other machine images, see prescriptions at [Advanced Configuration - custom AMIs and pre runner scripts](./advanced-configuration.md#3-advanced-ami-and-pre-runner-script-strategies)

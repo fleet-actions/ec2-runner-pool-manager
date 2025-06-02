@@ -1,30 +1,11 @@
 # Monitoring, Logging, and Troubleshooting
 
+!!! warning "Needs improvement"
+    Feel free to raise pull requests to improve this page!
+
 ## Runner Logs
 
 Looking for specific signals. As per the [architecture](../todo.md), the Github Runners and Instances communicate with each other via various "signals". You can see the state of specific instances via very specific signals.
-
-Specific signals to look for in:
-`Provision`
-
-Creation:
-
-- `UD_COMPLETE`
-- `UD_REG_COMPLETE`
-
-Selection:
-
-- Other signals
-
-`Release`
-
-- Other Signals
-
-
-`Refresh`
-
-- Any errors
-- Termination of Instances
 
 ## Accessing an instance
 

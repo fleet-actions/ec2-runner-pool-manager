@@ -44,23 +44,22 @@ This action operates using three distinct modes (`provision`, `release`, `refres
 !!! note
     To see how this fits in your Github Actions code and get started, see: [prerequisites](getting-started/prerequisites.md) & [quickstart](getting-started/quickstart.md)
 
-Here’s a closer look at each operational mode:
+Here’s an overview of each operational mode:
 
-### Mode: `provision`
+### Mode: `provision` :airplane_arriving:
 
 Allocates existing EC2 instances from the shared pool or creates new ones if needed for your active workflow jobs.
 
 - Simply specify the number of instances required (e.g., `instance-count: 10`)
 - Target these runners in workflow (e.g, `runs-on: ${{ github.run_id }}`)
 
-### Mode: `release`
+### Mode: `release` :airplane_departure:
 
-Returns the EC2 instances used by a workflow back to the shared pool, making them available for reuse by other jobs.
+Returns the EC2 instances used by a workflow back to the shared pool, making them available for reuse by other jobs. Requires no additional configuration
 
-- This mode typically requires no additional configuration, aiming for YAML simplicity.
-- It automatically handles the release based on the workflow's unique `github.run_id`.
+- Automatically handles the release based on the workflow's unique `github.run_id`.
 
-### Mode: `refresh`
+### Mode: `refresh` :fontawesome-solid-tower-cell:
 
 Manages the overall configuration and health of the EC2 runner pool. This mode is designed to be run on a schedule (e.g., via a cron job) to perform ongoing maintenance tasks:
 

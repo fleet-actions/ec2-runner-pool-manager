@@ -19,6 +19,7 @@ But before we cover each of the components in detail, we first have to cover how
 The controlplane uses an internal record of states to keep track of whether the instance is running a job, in the resource pool, etc. These include idle, claimed, running and terminated. I hope these state names are intuitive enough, but to be more explicit, lets see what it means to assign each instance with this state:
 
 - idle: an instance is idling in the resource pool, yet to be claimed
+- created: an instance has been created by a workflow in preparation for running
 - claimed: an instance has been claimed by a workflow to prepare for running
 - running: an instance is safe to pickup a ci job
 - terminated: an instance has been terminated (consistent with [aws' definition of terminated](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/terminating-instances.html))
@@ -30,5 +31,17 @@ With these states, I have made a diagram below to see how each states can transi
 Great! So now, that we have this diagram, let's go through the each states in more detail:
 
 idle
-:    ..
+:    idle is a state that is assigned to an instance once its been placed the controlplane has placed an instance to the resource pool for other workflows to pick up from. This state should only be reached after we have `released` which, from the way that we prescribe to structure a workflow, means that all jobs in that workflow has been completed.
+
+created
+:    created is a state assigned to an instance shortly after the controlplane has confirmed with AWS of successful EC2 instantiation. The controlplane waits for this instance to transition to <TODO>
+
+claimed
+:    claimed is a state that is assigned to an instance once an instance has been picked up from the resource pool and is confirmed to not have been picked up by other workflows.
+
+running
+:    running is a state that is assigned to an instance when its been confirmed to be ready and able to pikc up a CI job. This state is typically reached shortly after being created. Or if picked up from the resource pool, shortly after being claimed.
+
+terminated
+:    terminated is a state that is assigned to an instance once its been confirmed to have been terminated. The controlplane employs a couple of mechanisms to reach this state.
 

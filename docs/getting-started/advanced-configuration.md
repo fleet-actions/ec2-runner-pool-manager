@@ -226,7 +226,7 @@ If you have custom requiremetns - here's an example. Note that this this overrid
           resource-class: "custom-large"
 ```
 
-## 5. Permissions
+## 5. Permission & Network Hardening
 
 Beyond the basic IAM policies in [Prerequisites](./prerequisites.md), feel free to further harden IAM Policies and the Networking around the provided subnets.
 
@@ -254,11 +254,25 @@ Beyond the basic IAM policies in [Prerequisites](./prerequisites.md), feel free 
 
 #### IAM Entity for the EC2 Instance Profile
 
-If you want the runners to interact with other ... <TBC>
+At a minimum, the role given to the instance needs to be able to self-terminate and read-write from a ddb table. As such, we can explore two avenues of hardening the role handed to the ec2 instance beyond the minimum defined in the [Prerequisites](./prerequisites.md#4-iam-role--instance-profile-for-ec2-instances):
 
-- Self-termination - Instances are given the ability to safely self-terminate. The current recommended IAM
+- **Self-Termination**: Can use [Self referencial ARNs](https://www.reddit.com/r/aws/comments/6tnuxw/selfreferential_arns/) to ensure that `aws ec2 terminate-instances` can only be really delivered to the instance that calls it.
+- **Read & Write DynamoDB Table**: As above, restrict the resource to an arn that follows the repo-owner and repo-name `"arn:aws:dynamodb:*:*:table/{repo-owner}-{repo-name}-*"`
+
+!!! warning "Interacting with other AWS Services ☁️"
+    If your self-hosted runner needs to communicate with other AWS services (ie. `s3`), feel free to expand the EC2 instance profile - but always ensure that the minimum permissions specified here are included.
+
+!!! tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
+    SSM is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance profile with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). Various Machine Images such as Amazon Linux 2023 and Ubuntu have the [SSM Agent pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) which makes it even better 🤩
+
 
 ### Network Security
+
+#### Security Groups
+
+Only allow outbound traffic necessary. See Github's prescription [self-hosted runner communication](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/communicating-with-self-hosted-runners).
+
+#### Subnets and VPC Endpoints
 
 * **Restrictive Security Groups:**
   * For EC2 runner instances, only allow outbound traffic necessary (e.g., HTTPS to GitHub, package repositories, AWS services).

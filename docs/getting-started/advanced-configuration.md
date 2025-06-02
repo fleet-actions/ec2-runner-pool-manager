@@ -262,24 +262,16 @@ At a minimum, the role given to the instance needs to be able to self-terminate 
 !!! warning "Interacting with other AWS Services ☁️"
     If your self-hosted runner needs to communicate with other AWS services (ie. `s3`), feel free to expand the EC2 instance profile - but always ensure that the minimum permissions specified here are included.
 
-!!! tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
-    SSM is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance profile with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). Various Machine Images such as Amazon Linux 2023 and Ubuntu have the [SSM Agent pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) which makes it even better 🤩
+??? tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
+    [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html) is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance profile with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). When used with Machine Images built on Amazon Linux 2023 and Ubuntu - Session Manager should work out of the box as the [SSM Agent is pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) 🤩
 
 
 ### Network Security
 
 #### Security Groups
 
-Only allow outbound traffic necessary. See Github's prescription [self-hosted runner communication](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/communicating-with-self-hosted-runners).
+Only allow outbound traffic necessary. Outbound traffic can be further restricted as per Github's prescription [self-hosted runner communication](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/communicating-with-self-hosted-runners).
 
 #### Subnets and VPC Endpoints
 
-* **Restrictive Security Groups:**
-  * For EC2 runner instances, only allow outbound traffic necessary (e.g., HTTPS to GitHub, package repositories, AWS services).
-  * Avoid overly permissive inbound rules (e.g., `0.0.0.0/0` for SSH). If SSH is needed, restrict it to specific bastion host IPs or your corporate IP range.
-* **VPC Endpoints (AWS PrivateLink):**
-  * For services like DynamoDB, SQS, EC2 API, ECR, and S3, consider using VPC Endpoints.
-  * **Benefits:**
-    * Traffic between your EC2 runners and these AWS services stays within the AWS network, not traversing the public internet. This enhances security.
-    * Can potentially reduce data transfer costs and reliance on NAT Gateways for private subnets.
-  * **Considerations:** Adds some complexity to network setup. Ensure your subnets' route tables and security groups are configured correctly for endpoints.
+We recommend adding [VPC endpoints](https://docs.aws.amazon.com/vpc/latest/privatelink/create-interface-endpoint.html) to your VPC's route tables if you prefer to keep AWS service calls off the public internet. The self-hosted runners already make calls to DynamoDB in the background so a Gateway Endpoints will bring those network costs to zero. Furthermore, if you need to pull container images from ECR or access artifacts in S3, consider adding the S3 Gateway Endpoint as well.

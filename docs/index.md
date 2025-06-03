@@ -5,7 +5,7 @@
 This Action enables you to run a pool of self-hosted EC2 runners within the
 Github Actions runtime. No separate controlplane with Kubernettes/Terraform/CDK.
 Resource pooling, scale-in/scale-out, termination of the runners are all handled
-by the action.
+by the action. Free cake!!
 
 ![Architecture](assets/simplified-architecture.png)
 

@@ -153,6 +153,18 @@ Great! Now that the instance has been fully selected through the high level crit
 claimed->running
 ```
 
+**Termination**
+
+Great! now that our instance is being reused, let's look at some of the ways that this instance can fall through the cracks. We'll get an insight on various mechanisms in the controlplane that causes an instance to get safely terminated (or atleast as safe as we can make it to be).
+
+Aight so its now running one of your ci jobs. Say that in this workflow, you're generally expecting a quick ci job turnaround. So you se the `max-runtime-min` to say 10 mins on the provision level. Say that your workflow looks somethink like:
+
+```
+provision(max-runtime-min: 10)->test->release
+```
+
+Then test takes way more than 10minutes. What happens then?
+
 ## Controlplane - A deeper dive in to modes of operation
 
 Now that we have a better idea around instance states and lifetimes of an instance, I think this is a good time to look deeper in to each of the controlplane modes and subcomponents and how they work together.
@@ -161,6 +173,39 @@ Now that we have a better idea around instance states and lifetimes of an instan
 
 As we have covered in the lifetime of the instance, what we can see is that provision does ALOT of heavy lifting! To be able to cover this mode properly, ill have to separate it in various chunks. Ill prep a small diagram here just to cover the structure of Provision.
 
-(TOOD: Components of Provision)
+(TOOD: Components of Provision Diagram + Interface with resource pool & Interface with AWS)
 
-### Selection
+However, as covered above, we can see that Provision has two main components, selection and creation. At a high level, the former interfaces with the resource pool, and the latter interfaces with aws to demand any resource requirements not satisfied by selection. We'll go through each one by one.
+
+### Resource Pool and Selection
+
+Okay, okay. So, when we first define provision, we actually have some relevant parameters which dictate how selection should behave. See in the yaml below:
+
+```yaml
+mode: provision
+with:
+  instance-count: 5
+  usage-class: spot/on-demand
+  allowed-instance-types: "c* r*"
+  resource-class: "xlarge"
+```
+
+Okay, so first of all, the thing that stands out is the instance count. Essentially informing the controlplane how many runners the workflow needs. With this, the way the selection is structured, I create an equal amount of "claim-workers" each who interfaces with the resource pool via a single and shared pickup manager. See below how this is structured.
+
+(TODO: Diagram Resource Pool -> Pickup Manager => Claim Workers)
+
+As we have covered in the lifetime of the instance above, selection itself actually has two phases.
+
+The first phase is rather straightforward and essentially self-contained. This first phase picks up a raw message from the resource pool, and observes the attributes contained within the message that accompanies the instanceid. It looks if its usage-class, allowed-instance-types and the CPU and memory (as implicitly defined by the resource class config in `refresh`) is compatible with the workflow's needs.
+
+If they aren't, the mesage is placed back to the resource pool, if it is, then we attempt to claim the instance.
+
+### Selection - Claiming
+
+Claiming an instance
+
+If the claim is unsuccessful, we know that it has been taken by another workflow or has somehow been invalidated. That's OK.
+
+ take it to the second phase of selection.
+
+### Selection - Part 2

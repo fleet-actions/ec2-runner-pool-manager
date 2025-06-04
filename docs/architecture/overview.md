@@ -88,7 +88,7 @@ As such, we can view the workflow's run id as THE critical connection between th
 
 (TODO: Small Diagram)
 
-**Release**:
+**Release: To the Resource Pool**:
 
 Phew! Now that all the CI jobs have been executed to completion - remember again how we have structured our ci.yml file. We have made it so that the `release` job only exectutes after all jobs within the workflow have concluded. So, by executing the `release` within that workflow, the controlplane is able to determine which instances are registered against THAT run id. Then the controlplane, sends a signal to the database that this specific instance is ready for deregistration.
 
@@ -145,4 +145,22 @@ For the latter check, registeration against the new workflow is critical. See wh
 As the runId changes, while the instance is `idle`, it observes the database intently for this exact piece of information. Once it sees this runId, it essentially gets an all clear to register itself against github actions under this label :ok:. As per **creation**, we know that successful registration leads to a signal emission from the instance itself which the controlplane then sees as confirmation of that second checklist ---> thus completing the selection process for this instance!
 
 Callout::But what if the instance does not fulfill the checklist?
-If any of these checks fail, then the message is ultimately discarded from the resource pool and the instance is internally "expired" which leads to termination.
+If any of these checks fail, then the message is ultimately discarded from the resource pool and the instance is internally "expired" which leads to termination. In the following sections, we will look at how this is done
+
+Great! Now that the instance has been fully selected through the high level criteria and the following status checks. The selection routine within the provision portion of the controlplane. At a high level, these selected instances remain in the `claimed` state until after we have also created any new instances as well just in case the resource pool is not able to satify the requirements of the workflow. Nevertheless, since in this example only one instance is required and one instance is successfully selected from the resource pool, then the transition to `running` occurs shortly thereafter and `provision` concludes to make way for the ci jobs.
+
+```
+claimed->running
+```
+
+## Controlplane - A deeper dive in to modes of operation
+
+Now that we have a better idea around instance states and lifetimes of an instance, I think this is a good time to look deeper in to each of the controlplane modes and subcomponents and how they work together.
+
+## Provision
+
+As we have covered in the lifetime of the instance, what we can see is that provision does ALOT of heavy lifting! To be able to cover this mode properly, ill have to separate it in various chunks. Ill prep a small diagram here just to cover the structure of Provision.
+
+(TOOD: Components of Provision)
+
+### Selection

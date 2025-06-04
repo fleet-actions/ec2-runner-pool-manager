@@ -82,12 +82,37 @@ Great! Now that `provision` has completed - let's have a short look at how we co
 # ...
 ```
 
-As we can see here, the ci jobs like test/link have a very specific parameter defined on them `runs_on: ${{ github.run_id }}`. This means that the CI jobs are only going to be run on machines which are registered against the workflow's run id. Luckily, this is exactly what we covered in our instance initialization!
+As we can see here, the ci jobs (ie: test/lint) have a very specific parameter defined on them `runs_on: ${{ github.run_id }}`. This means that these CI jobs are only going to be run on machines which are labeled against the workflow's run id. Luckily, this is exactly what we do in our initialization!
 
-As such, we can view the workflow's run id as the critical connection between the jobs which require execution and the compute that is able to run said jobs! With this in mind, our instance is able to execute CI Jobs! Magic :star:
+As such, we can view the workflow's run id as THE critical connection between the jobs which require execution and the compute that is able to run said jobs! With this in mind, our instance is able to execute CI Jobs as they are needed! Voila! :star:
 
 (TODO: Small Diagram)
 
 **Release**:
 
-Phew! Now that all the CI jobs have been executed, remember again how we have structured our ci.yml file. We have made it so that the `release` job only exectutes after all jobs within the workflow have concluded. So, by execution of the `release` mode within that workflow, the controlplane is able to change the states of the instances captured within that workflow's run id.
+Phew! Now that all the CI jobs have been executed to completion - remember again how we have structured our ci.yml file. We have made it so that the `release` job only exectutes after all jobs within the workflow have concluded. So, by executing the `release` within that workflow, the controlplane is able to determine which instances are registered against THAT run id. Then the controlplane, sends a signal to the database that this specific instance is ready for deregistration.
+
+From the perspective of the `release` component of the controlplane, it wants to transition `running` instances to `idle` as quickly as possible.
+
+Callout::Instance Deregistration
+As we recall above, shortly after creation, the instance registers itself against github under the label of the workflow's run id. That is until, by proxy of the database, it gets an indication that it is safe to deregister (signal sent by the controlplane to the database). As such, it undergoes deregistration which is an internal routine that prompts the instance to deregister itself from github actions. Once this is successful, it sends a signal to the database which the controlplane is able to observe :ok:
+
+Once `release` has gotten an indication of successful deregistration, it transitions the instance' state from `running` to `idle` with an empty runId. Then places the instance id in addition to some metadata to the resource pool for other workflows to pick this instance up
+
+```
+running->idle
+```
+
+(TODO: Small Diagram)
+
+**Selection and Reuse**
+
+Say that shortly after the instanceid has been placed in the resource pool, another workflow is able to see this instance id. Now selection has a few components to it so lets try to through it one by one.
+
+Once the instanceid is picked up, firstly - `provision` observes if the instance is fit for the workflow according to various constraints. As per [advanced configuation](), these criteria are determined by the usage-class, allowed-instance-type. Thankfully, the resourcepool is already partioned by resource-class, so we dont have to filter by that.
+
+```
+# MINIMAL YAML showing the parameters
+```
+
+Nevertheless, if the accompanying metadata of the instance id does not fulfill the workflow's defined criteria on `provision`, then the message is requeued for other workflows to pickup :ok: - that's completely fine. However, if the pickedup instance satisfies all the constraints, then the filtering phase of selection is all good and `provision` attempts to put a `claim` on the instance.

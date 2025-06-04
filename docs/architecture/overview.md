@@ -105,14 +105,44 @@ running->idle
 
 (TODO: Small Diagram)
 
-**Selection and Reuse**
+**Selection Part 1: From the Resource Pool**
 
-Say that shortly after the instanceid has been placed in the resource pool, another workflow is able to see this instance id. Now selection has a few components to it so lets try to through it one by one.
+Say that shortly after the instanceid has been placed in the resource pool, another workflow requires a resource and sees this instance id. Now selection has a few components to it so lets try to through it one by one.
 
-Once the instanceid is picked up, firstly - `provision` observes if the instance is fit for the workflow according to various constraints. As per [advanced configuation](), these criteria are determined by the usage-class, allowed-instance-type. Thankfully, the resourcepool is already partioned by resource-class, so we dont have to filter by that.
+Once the instanceid is picked up, `provision` observes if the instance is fit for the workflow according to various constraints. As per [advanced configuation](), these criteria are determined by the usage-class, allowed-instance-type. Thankfully, the resourcepool is already partioned by resource-class, so we dont have to filter by that.
 
 ```
 # MINIMAL YAML showing the parameters
 ```
 
 Nevertheless, if the accompanying metadata of the instance id does not fulfill the workflow's defined criteria on `provision`, then the message is requeued for other workflows to pickup :ok: - that's completely fine. However, if the pickedup instance satisfies all the constraints, then the filtering phase of selection is all good and `provision` attempts to put a `claim` on the instance.
+
+Remember that the act of releasing an instance assigns it a state of being `idle`. This attempt to `idle->claim` is important as this where resource contention is very much expected to occur. The resource pool is backed by standard SQS queues which only guarantees atleast-once delivery. Meaning a message in the queue can theoretically be pickedup by multiple workflows at the same time.
+
+Furthermore, due to the distributed nature of the workflows and controlplane, it was easier for me to build the resource pooling mechanism knowing that sometimes some instance ids may be duplicated. Internally, this leverages dynamodb's conditional updates. In that, if n amount of workflows tries to claim 1 instance, only one is guaranteed to succeed in the `idle->claim` attempt.
+
+```
+idle->claimed
+```
+
+As such, for whichever instance is able to transition the state of the instance, it is guaranteed that it is only this workflow holds this instance until release :ok:.
+
+**Selection Part 2: Is the instance Ok?**
+
+We're not done in "selection" thought! An internal representation of being `claimed` does not actually mean that the instance is alive. :sweat: This is where post claim checks come in. These checks include:
+
+- [x] is the instance healthy?
+- [x] is the instance able to register itself against the workflow successfully?
+
+For the first check, this health goes a level deeper than just pinging the AWS API to describe the instance, the controlplane adds a heartbeat probe in each of the created instances which sends signals to the database indicating that it is still alive. The controlplane sees the recency of these signals and makes a call if it is healthy or not.
+
+For the latter check, registeration against the new workflow is critical. See when whenever we transition from one state to another, we also assign the runId which transitions it. So the internal state actually looks more like this:
+
+```
+{state: idle, runId: ''}->{state: claimed, runId: 123}
+```
+
+As the runId changes, while the instance is `idle`, it observes the database intently for this exact piece of information. Once it sees this runId, it essentially gets an all clear to register itself against github actions under this label :ok:. As per **creation**, we know that successful registration leads to a signal emission from the instance itself which the controlplane then sees as confirmation of that second checklist ---> thus completing the selection process for this instance!
+
+Callout::But what if the instance does not fulfill the checklist?
+If any of these checks fail, then the message is ultimately discarded from the resource pool and the instance is internally "expired" which leads to termination.

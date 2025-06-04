@@ -49,13 +49,21 @@ With this in mind, we can look at the general state transitions that the control
 
 ### Imaginary Lifetime of a Single Instance
 
-Great! Now that we have a basic understanding of the internal states that the controlplane uses, ill take you on a journey of a single instance across workflows as its initially created and eventually reused!
+Great! Now that we have a basic understanding of the internal states that the controlplane uses to represent an instance, now we have enough mental tools to further understand the lifetime of a single instance! From creation, reuse, and termination.
 
 **Creation**:
 
-Say that the resource pool is empty and the workflow needs one instance. The `provision` component then instantiates an instance for use. We then immediately register its id in our database and we assign it a `created` state. Then, once created, `provision` wants to assign it a `running` state BUT it cant until the instance emits various signals indicating proper initialization - ie. successful execution of `pre-runner-script` and successful registration of the instance as a runner for workflow_a.
+Say that the resource pool is empty and the workflow needs one instance. The `provision` component then talks to AWS to standup the instance gives us the instanceid that it uses to identify the VM. We then immediately register the instanceid in our database and we assign it a `created` state and with an accomanying identifier that is the workflow's `runId`.
 
-Once these signals have been emitted by the instance, `provision` assigns a `running` state to instance_a and `provision` concludes. Ill see if I can assign q small diagram below
+Then, once created, `provision` wants to assign it a `running` state as soon as possible BUT it cant until the instance emits various signals indicating proper initialization. What does that initialization look like? Let's look at that quickly.
+
+Callout::Instance Initialization
+When stood up by AWS, the controlplane deems an instance ready to pickup ci jobs via a couple of criterias:
+
+- The instance has successfully executed the operator's injected `pre-runner-script`
+- The instance has successfuly registered itself on github actions as a runner with a very specific label. In our case, the workflow's `runId`. We'll see shortly why this is important.
+
+After these two things have been completed, the instance modifies some state in the database which `provision` detects and then transitions the instance from a state of `claimed` to a state of `running`. Shortly after this, `provision` completes!
 
 ```
 ->created
@@ -63,18 +71,23 @@ Once these signals have been emitted by the instance, `provision` assigns a `run
 created->running
 ```
 
-(TODO: Small diagram)
+(TODO: Small diagram maybe)
 
 **Running the CI Jobs**
 
-Great! Now that the provision has completed. Remember that we assigned 
-
-**Selection**: 
-
-Imagine that we have a handful of instances currenty idling in the resource pool. With a workflow that only needs one instance, it picks instance_a. Once picked up, the workflow tries to claim the instance to ensure that no other workflows have claimed this instance already. This then looks something like:
+Great! Now that `provision` has completed - let's have a short look at how we configure our CI jobs. Refer to the configuration defined in quickstart for more context.
 
 ```
-idle->claimed
+# MINIMAL YAML configuration
+# ...
 ```
 
-The basic logic here is that if the id that's been picked up from the resource pool already has an internal representation of claimed, then its already been picked up by another workflow! This actually works in our favour as the resource pool is backed by standard SQS which only guarantees atleast once delivery, not exactly once. As such, if workflow_a and workflow_b both pickup instance_a, then only one workflow succeeds in claiming the 
+As we can see here, the ci jobs like test/link have a very specific parameter defined on them `runs_on: ${{ github.run_id }}`. This means that the CI jobs are only going to be run on machines which are registered against the workflow's run id. Luckily, this is exactly what we covered in our instance initialization!
+
+As such, we can view the workflow's run id as the critical connection between the jobs which require execution and the compute that is able to run said jobs! With this in mind, our instance is able to execute CI Jobs! Magic :star:
+
+(TODO: Small Diagram)
+
+**Release**:
+
+Phew! Now that all the CI jobs have been executed, remember again how we have structured our ci.yml file. We have made it so that the `release` job only exectutes after all jobs within the workflow have concluded. So, by execution of the `release` mode within that workflow, the controlplane is able to change the states of the instances captured within that workflow's run id.

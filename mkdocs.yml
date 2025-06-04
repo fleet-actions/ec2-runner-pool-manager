@@ -50,7 +50,7 @@ nav:
       - Quickstart: getting-started/quickstart.md
       - Advanced Configuration: getting-started/advanced-configuration.md
       - Monitoring and Troubleshooting: getting-started/monitoring-troubleshooting.md
-  - Case Study: case-study.md
+  # - Case Study: case-study.md
   - Architecture:
       - Overview: architecture/overview.md
       - Refresh: architecture/refresh.md

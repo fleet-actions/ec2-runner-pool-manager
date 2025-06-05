@@ -147,15 +147,25 @@ As the runId changes, while the instance is `idle`, it observes the database int
 Callout::But what if the instance does not fulfill the checklist?
 If any of these checks fail, then the message is ultimately discarded from the resource pool and the instance is internally "expired" which leads to termination. In the following sections, we will look at how this is done
 
-Great! Now that the instance has been fully selected through the high level criteria and the following status checks. The selection routine within the provision portion of the controlplane. At a high level, these selected instances remain in the `claimed` state until after we have also created any new instances as well just in case the resource pool is not able to satify the requirements of the workflow. Nevertheless, since in this example only one instance is required and one instance is successfully selected from the resource pool, then the transition to `running` occurs shortly thereafter and `provision` concludes to make way for the ci jobs.
+Great! Now that the instance has been fully selected through the high level criteria and the following status checks. The selection routine within the provision portion of the controlplane. At a high level, these selected instances remain in the `claimed` state until after we have also created any new instances as well just in case the resource pool is not able to satify the requirements of the workflow.
+
+Nevertheless, since in this example only one instance is required and one instance is successfully selected from the resource pool, then the transition to `running` occurs shortly thereafter and `provision` concludes to make way for the ci jobs allowing for the instance to be reused.
 
 ```
 claimed->running
 ```
 
-**Termination**
+## Instance Expirations, Thresholds and Terminations
 
-Great! now that our instance is being reused, let's look at some of the ways that this instance can fall through the cracks. We'll get an insight on various mechanisms in the controlplane that causes an instance to get safely terminated (or atleast as safe as we can make it to be).
+So now that we have covered how an instance is created, picks up ci jobs, released in to the resource pool and selected for reuse in subsequent workflows, I would like to look at the mechanisms that the controlplane uses to safely teminate our instances.
+
+### Instance Threshold Timestamp
+
+So I would have a look at our state diagram again. When the controlplane assigns a state from one to another, it also assigns it a `threshold` attribute. This attribute is a timestamp that is ...
+
+()
+
+So let's imagine this. We have configured our controlplane correctly. Now that our instance is being reused, let's look at some of the ways that this instance can fall through the cracks. We'll get an insight on various mechanisms in the controlplane that causes an instance to get safely terminated (or atleast as safe as we can make it to be).
 
 Aight so its now running one of your ci jobs. Say that in this workflow, you're generally expecting a quick ci job turnaround. So you se the `max-runtime-min` to say 10 mins on the provision level. Say that your workflow looks somethink like:
 
@@ -163,7 +173,7 @@ Aight so its now running one of your ci jobs. Say that in this workflow, you're 
 provision(max-runtime-min: 10)->test->release
 ```
 
-Then test takes way more than 10minutes. What happens then?
+Then test takes way more than 10minutes. What happens then? Well from the perspective of the contolpane, this instance is determined as "expired". This is because for each state transition, we also add a `threshold`. This is a timestamp sometime in the future
 
 ## Controlplane - A deeper dive in to modes of operation
 
@@ -190,17 +200,27 @@ with:
   resource-class: "xlarge"
 ```
 
-Okay, so first of all, the thing that stands out is the instance count. Essentially informing the controlplane how many runners the workflow needs. With this, the way the selection is structured, I create an equal amount of "claim-workers" each who interfaces with the resource pool via a single and shared pickup manager. See below how this is structured.
+Okay, so first of all, the thing that stands out is the instance count. Essentially informing the controlplane how many runners the workflow needs. With this, the way the selection is structured, internally, the controlplane creates an equal amount of "claim-workers" each who interfaces with the resource pool via a single and shared "pickup manager". See below how this is structured.
 
 (TODO: Diagram Resource Pool -> Pickup Manager => Claim Workers)
 
-As we have covered in the lifetime of the instance above, selection itself actually has two phases.
+At first, when the pickup manager gets a request for an instance from the resource pool, it first looks if it receives any messages. If so, we quickly check the accompanying attributes to see if they have the usage-class, allowed-instance-types and the CPU and memory (as implicitly defined by the resource class config in `refresh`) compatible with the workflow's needs.
 
-The first phase is rather straightforward and essentially self-contained. This first phase picks up a raw message from the resource pool, and observes the attributes contained within the message that accompanies the instanceid. It looks if its usage-class, allowed-instance-types and the CPU and memory (as implicitly defined by the resource class config in `refresh`) is compatible with the workflow's needs.
+If they don't then they are placed back to the resource pool by the pickup manager, and retries again until the pool is deemed empty - and the requesting claim worker gets the indication that there's no more resources to pickup from the pool.
 
-If they aren't, the mesage is placed back to the resource pool, if it is, then we attempt to claim the instance.
+If the pickup manager encounters a valid message from the pool, then the pickup manager hands this to the claim worker that requested to begin with. In that case, we go in to the following section of the selection routine!
 
 ### Selection - Claiming
+
+Great! Now that the pickup manager hands a valid instance to the claim worker, the claim worker then:
+
+1. Attempts to claim the instance `idle->claimed` and with a new `runId`.
+2. Observes states from the db if the instance is still healthy (is the heartbeat signal recent?)
+3. Observes states from the db if the instance has registered against github successfully with `runId`.
+
+As before, #1 is a guard to guarantee that the instance has not been pickedup and claimed by any other concurrent workflow.
+
+# 2 gives us a quick observation if the instance itself has not been terminated
 
 Claiming an instance
 

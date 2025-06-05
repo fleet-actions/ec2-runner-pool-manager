@@ -16,7 +16,13 @@ But before we cover each of the components in detail, we first have to cover how
 
 ## Instance States
 
-The controlplane uses an internal record of states to keep track of whether the instance is running a job, in the resource pool, etc. These include idle, claimed, running and terminated. I hope these state names are intuitive enough, but to be more explicit, lets see what it means to assign each instance with this state:
+The controlplane uses an internal record of states to keep track of whether the instance is running a job, in the resource pool, etc. These include idle, claimed, running and terminated. Internally, the datastructure that allows for this looks something like this:
+
+```json
+{ "instanceId": "i-123", "state": "running" }
+```
+
+I hope these state names are intuitive enough, but to be more explicit, lets see what it means to assign each instance with this state:
 
 - idle: an instance is idling in the resource pool, yet to be claimed
 - created: an instance has been created by a workflow in preparation for running
@@ -53,15 +59,19 @@ Great! Now that we have a basic understanding of the internal states that the co
 
 **Creation**:
 
-Say that the resource pool is empty and the workflow needs one instance. The `provision` component then talks to AWS to standup the instance gives us the instanceid that it uses to identify the VM. We then immediately register the instanceid in our database and we assign it a `created` state and with an accomanying identifier that is the workflow's `runId`.
+Say that the resource pool is empty and the workflow needs one instance. The `provision` component then talks to AWS to standup the instance gives us the instanceid that it uses to identify the VM. We then immediately register the instanceid in our database and we assign it a `created` state and with an accomanying identifier that is the workflow's `runId`. So internally, it looks something like this:
 
-Then, once created, `provision` wants to assign it a `running` state as soon as possible BUT it cant until the instance emits various signals indicating proper initialization. What does that initialization look like? Let's look at that quickly.
+```json
+{ "instanceId": "i-123", "state": "created", "runId": "456789" }
+```
 
-Callout::Instance Initialization
-When stood up by AWS, the controlplane deems an instance ready to pickup ci jobs via a couple of criterias:
+Then, once created, `provision` wants to assign it a `running` state as soon as possible BUT it cant until the instance emits various signals indicating proper initialization. How signals from the worker reach the controlplane from various workers at a later section, let us focus on what does that initialization look like?
 
-- The instance has successfully executed the operator's injected `pre-runner-script`
-- The instance has successfuly registered itself on github actions as a runner with a very specific label. In our case, the workflow's `runId`. We'll see shortly why this is important.
+!!! note "Instance Initialization"
+    When stood up by AWS, the controlplane deems an instance ready to pickup ci jobs via a couple of criterias:
+
+    - The instance has successfully executed the operator's injected `pre-runner-script`
+    - The instance has successfuly registered itself on github actions as a runner with a very specific label. In our case, the workflow's `runId`. We'll see shortly why this is important.
 
 After these two things have been completed, the instance modifies some state in the database which `provision` detects and then transitions the instance from a state of `claimed` to a state of `running`. Shortly after this, `provision` completes!
 
@@ -78,11 +88,12 @@ created->running
 Great! Now that `provision` has completed - let's have a short look at how we configure our CI jobs. Refer to the configuration defined in quickstart for more context.
 
 ```
-# MINIMAL YAML configuration
-# ...
+(provision) -> (test/lint) -> (release)
 ```
 
-As we can see here, the ci jobs (ie: test/lint) have a very specific parameter defined on them `runs_on: ${{ github.run_id }}`. This means that these CI jobs are only going to be run on machines which are labeled against the workflow's run id. Luckily, this is exactly what we do in our initialization!
+As we can see here, the ci jobs (ie: test/lint) have a very specific parameter defined on them `runs_on: ${{ github.run_id }}`. This means that these CI jobs are only going to be run on machines which are labeled against the workflow's run id. Luckily, this is exactly what we do in our initialization! Recall above that we store the workflow's runId via `"runId"` as an attribute accompanying the instanceId.
+
+The runner itself, being aware of its own instanceId knows which internal record to look at, and sees the accompanying runId and registers itself as a self-hosted runner with that label.
 
 As such, we can view the workflow's run id as THE critical connection between the jobs which require execution and the compute that is able to run said jobs! With this in mind, our instance is able to execute CI Jobs as they are needed! Voila! :star:
 
@@ -90,18 +101,33 @@ As such, we can view the workflow's run id as THE critical connection between th
 
 **Release: To the Resource Pool**:
 
-Phew! Now that all the CI jobs have been executed to completion - remember again how we have structured our ci.yml file. We have made it so that the `release` job only exectutes after all jobs within the workflow have concluded. So, by executing the `release` within that workflow, the controlplane is able to determine which instances are registered against THAT run id. Then the controlplane, sends a signal to the database that this specific instance is ready for deregistration.
+Phew! Now that all the CI jobs have been executed to completion. As per the structure of our worfklow, we have made it so that the `release` job. The structure makes it so that once `release` is executed, we know all jobs within the workflow have concluded.
 
-From the perspective of the `release` component of the controlplane, it wants to transition `running` instances to `idle` as quickly as possible.
+Within `release`, scan the database of instances that has that specific `runId` - then the controlplane internally undertakes the following transitions:
 
-Callout::Instance Deregistration
-As we recall above, shortly after creation, the instance registers itself against github under the label of the workflow's run id. That is until, by proxy of the database, it gets an indication that it is safe to deregister (signal sent by the controlplane to the database). As such, it undergoes deregistration which is an internal routine that prompts the instance to deregister itself from github actions. Once this is successful, it sends a signal to the database which the controlplane is able to observe :ok:
-
-Once `release` has gotten an indication of successful deregistration, it transitions the instance' state from `running` to `idle` with an empty runId. Then places the instance id in addition to some metadata to the resource pool for other workflows to pick this instance up
-
+```json
+{
+  "instanceId": "i-123",
+  "state": "running", // -> "idle"
+  "runId": "456789"   // -> ""
+}
 ```
-running->idle
+
+By changing the value of the `runId`, instance agent sees this change and undergoes an internal deregistration routine which is just a set of steps that  prevents the instance from being able to pickup other ci jobs and allows the instance to be re-registered faster under a different `runId`. Critical if the instance is ever assigned for another workflow.
+
+Once deregistration is successful, the worker sends a signal to the controlplane to indicate success. Then `release` registers the `instanceId` in to the resource pool. Since the resource pool is backed by SQS, it really just enqueues it. This information is packed with additional attributes like so - we'll see soon what these attributes are for:
+
+```json
+{
+  "instanceId": "i-123",
+  "instanceType": "c6i.large",
+  "usageClass": "spot",
+  "cpu": 2,
+  "mmem": 4096  
+}
 ```
+
+As you know, these messages, when placed in SQS can be pickedup by any actor. In our case - other workflows.
 
 (TODO: Small Diagram)
 

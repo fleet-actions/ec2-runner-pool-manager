@@ -161,9 +161,23 @@ So now that we have covered how an instance is created, picks up ci jobs, releas
 
 ### Instance Threshold Timestamp
 
-So I would have a look at our state diagram again. When the controlplane assigns a state from one to another, it also assigns it a `threshold` attribute. This attribute is a timestamp that is ...
+So I would have a look at our state diagram again. When the controlplane assigns a state from one to another, it also assigns it a `threshold` attribute. This attribute defines a timestamp sometime in the future at the time the state transition happened.
 
-()
+With this, we get something quite cool. We essentially get state-lifetimes for each state transition. Remember that as soon as the instance is created we give it a state of `created`. With thresholds, the controlplane also gives it a lifetime in which the instance remains in that state.
+
+Expiry example: Say that, for some reason, a ci job runs far longer than it should. (ie. longer than the default or defined `max-runtime-min`). Then the threshold timestamp that is defined along with the `running` ticks over to the past. Internally, this tells us that the instance has been at this state longer than it probably should. As such, is thought of internally in the controlplane as "expired".
+
+So the question is ... who looks at these thresholds?
+
+### Who looks at this threshold?
+
+Good question! These thresholds exists so that they can be observed. On instance transitions, one of the questions that needs to be answered is whether the instance has expired (ie. how does the threshold timestamp compare to the system timestamp that is viewing the instance threshold?).
+
+Then if the instance has already expired, then the transition fails and the controlplane (hopefully) handles this gracefully.
+
+For example, if selection picks up an expired instance from the pool, then it just discards of the instance from the pool and looks for another instance in the resource pool for pickup.
+
+If for some reason  
 
 So let's imagine this. We have configured our controlplane correctly. Now that our instance is being reused, let's look at some of the ways that this instance can fall through the cracks. We'll get an insight on various mechanisms in the controlplane that causes an instance to get safely terminated (or atleast as safe as we can make it to be).
 

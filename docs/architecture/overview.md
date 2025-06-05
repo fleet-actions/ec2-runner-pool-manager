@@ -131,17 +131,28 @@ As you know, these messages, when placed in SQS can be pickedup by any actor. In
 
 (TODO: Small Diagram)
 
-**Selection Part 1: From the Resource Pool**
+**Selection Part 1: Filtering From the Resource Pool**
 
-Say that shortly after the instanceid has been placed in the resource pool, another workflow requires a resource and sees this instance id. Now selection has a few components to it so lets try to through it one by one.
+Say that another workflow is executed. As we know with how we configure the workflow that it is `provision` that executes first and it is also where define the amount of resource required via `instance-count`.
 
-Once the instanceid is picked up, `provision` observes if the instance is fit for the workflow according to various constraints. As per [advanced configuation](), these criteria are determined by the usage-class, allowed-instance-type. Thankfully, the resourcepool is already partioned by resource-class, so we dont have to filter by that.
+To maximize resource utilization, the first task for `provision` is to look for a viable resource in the resource pool before it can even think about creating a new instance. Keeping this simple again, lets say that the workflow finds the resource we have just placed in the reosource pool. The first thing that it does is it determines if the attributes of the resource that's been picked up fit the workflow requirements (ie. must be 2CPU, is `spot` etc.).
 
-```
+```yaml
 # MINIMAL YAML showing the parameters
+with: 
+  mode: provision
+  usage-class: 'spot'
+  allowed-instance-types: "c* m*"
+  resource-class: large # (ie. 2CPU)
 ```
 
-Nevertheless, if the accompanying metadata of the instance id does not fulfill the workflow's defined criteria on `provision`, then the message is requeued for other workflows to pickup :ok: - that's completely fine. However, if the pickedup instance satisfies all the constraints, then the filtering phase of selection is all good and `provision` attempts to put a `claim` on the instance.
+If those constraints are not satisfied, the resource is placed back to the pool for others to use, otherwise this workflow tries to claim the instance and perform final checks which leads us to the second portion of the selection routine.
+
+**Selection Part 2: Claiming and Final Checks**
+
+Great, an instance seems qualified for the workflow, `provision` then tries to put a `claim` on the instance! :star:
+
+Nevertheless, if the accompanying metadata of the instance id does not fulfill the workflow's defined criteria on `provision`, then the message is requeued for other workflows to pickup :ok: - that's completely fine (recall the usageClass, intanceType, etc.). However, if the pickedup instance satisfies all the constraints, then the filtering phase of selection is all good and `provision` attempts to put a `claim` on the instance.
 
 Remember that the act of releasing an instance assigns it a state of being `idle`. This attempt to `idle->claim` is important as this where resource contention is very much expected to occur. The resource pool is backed by standard SQS queues which only guarantees atleast-once delivery. Meaning a message in the queue can theoretically be pickedup by multiple workflows at the same time.
 
@@ -152,8 +163,6 @@ idle->claimed
 ```
 
 As such, for whichever instance is able to transition the state of the instance, it is guaranteed that it is only this workflow holds this instance until release :ok:.
-
-**Selection Part 2: Is the instance Ok?**
 
 We're not done in "selection" thought! An internal representation of being `claimed` does not actually mean that the instance is alive. :sweat: This is where post claim checks come in. These checks include:
 

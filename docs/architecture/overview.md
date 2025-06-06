@@ -148,11 +148,9 @@ with:
 
 If those constraints are not satisfied, the resource is placed back to the pool for others to use, otherwise this workflow tries to claim the instance and perform final checks which leads us to the second portion of the selection routine.
 
-**Selection Part 2: Claiming and Final Checks**
+**Selection Part 2: Claiming**
 
 Great, an instance seems qualified for the workflow, `provision` then tries to put a `claim` on the instance! :star:
-
-Nevertheless, if the accompanying metadata of the instance id does not fulfill the workflow's defined criteria on `provision`, then the message is requeued for other workflows to pickup :ok: - that's completely fine (recall the usageClass, intanceType, etc.). However, if the pickedup instance satisfies all the constraints, then the filtering phase of selection is all good and `provision` attempts to put a `claim` on the instance.
 
 Remember that the act of releasing an instance assigns it a state of being `idle`. This attempt to `idle->claim` is important as this where resource contention is very much expected to occur. The resource pool is backed by standard SQS queues which only guarantees atleast-once delivery. Meaning a message in the queue can theoretically be pickedup by multiple workflows at the same time.
 
@@ -164,65 +162,76 @@ idle->claimed
 
 As such, for whichever instance is able to transition the state of the instance, it is guaranteed that it is only this workflow holds this instance until release :ok:.
 
-We're not done in "selection" thought! An internal representation of being `claimed` does not actually mean that the instance is alive. :sweat: This is where post claim checks come in. These checks include:
+**Selection Part 3: Final Checks**
+
+We're nearly there! At this point we know a couple of things now: firstly the instance picked up is qualified for the workflow, and secondly no other workflow is looking at this instance for usage in their own workflow (ie. `claimed`). This final portion of selection checks if the instance is ready to be a self-hosted runner. :sweat: These checks include:
 
 - [x] is the instance healthy?
 - [x] is the instance able to register itself against the workflow successfully?
 
 For the first check, this health goes a level deeper than just pinging the AWS API to describe the instance, the controlplane adds a heartbeat probe in each of the created instances which sends signals to the database indicating that it is still alive. The controlplane sees the recency of these signals and makes a call if it is healthy or not.
 
-For the latter check, registeration against the new workflow is critical. See when whenever we transition from one state to another, we also assign the runId which transitions it. So the internal state actually looks more like this:
+For the latter check, the transition `idle->claimed` is fairly critical as well. It looks something like this:
 
+```json
+{
+  "instanceId": "i-123",
+  "state": "idle", // -> "claimed"
+  "runId": ""   // -> "90123546"
+}
 ```
-{state: idle, runId: ''}->{state: claimed, runId: 123}
-```
+
+Basically, for the time that the instance is at the resource pool, it continually polls the database to see if it has been assigned a new `runId` that it can register itself against.
 
 As the runId changes, while the instance is `idle`, it observes the database intently for this exact piece of information. Once it sees this runId, it essentially gets an all clear to register itself against github actions under this label :ok:. As per **creation**, we know that successful registration leads to a signal emission from the instance itself which the controlplane then sees as confirmation of that second checklist ---> thus completing the selection process for this instance!
 
-Callout::But what if the instance does not fulfill the checklist?
-If any of these checks fail, then the message is ultimately discarded from the resource pool and the instance is internally "expired" which leads to termination. In the following sections, we will look at how this is done
+!!! note "But what if the instance does not fulfill the checklist?"
+    If any of these checks fail OR does not fulfill them in time (as selection needs to be timely) then the message is ultimately discarded from the resource pool and the instance undergoes immediate termination.
 
-Great! Now that the instance has been fully selected through the high level criteria and the following status checks. The selection routine within the provision portion of the controlplane. At a high level, these selected instances remain in the `claimed` state until after we have also created any new instances as well just in case the resource pool is not able to satify the requirements of the workflow.
-
-Nevertheless, since in this example only one instance is required and one instance is successfully selected from the resource pool, then the transition to `running` occurs shortly thereafter and `provision` concludes to make way for the ci jobs allowing for the instance to be reused.
+Great! At this stage, it seems this instance is ready to pickup ci jobs. To keep this simple, say that the workflow only needed one resource and it got it :check: Shortly after this the transition to `running` occurs shortly thereafter and `provision` concludes to make way for the ci jobs allowing for the instance to be reused.
 
 ```
 claimed->running
 ```
 
-## Instance Expirations, Thresholds and Terminations
+## Instance Expirations, Thresholds, and Terminations
 
-So now that we have covered how an instance is created, picks up ci jobs, released in to the resource pool and selected for reuse in subsequent workflows, I would like to look at the mechanisms that the controlplane uses to safely teminate our instances.
+Now that we’ve covered how an instance is created, picks up CI jobs, is released into the resource pool, and is reclaimed, let’s examine how the control plane detects—and safely terminates—“stale” or expired instances.
 
 ### Instance Threshold Timestamp
 
-So I would have a look at our state diagram again. When the controlplane assigns a state from one to another, it also assigns it a `threshold` attribute. This attribute defines a timestamp sometime in the future at the time the state transition happened.
+Any time the control plane transitions an instance from one state to another, it attaches a **threshold** timestamp—a deadline indicating how long the instance should remain in its current state. For example:
 
-With this, we get something quite cool. We essentially get state-lifetimes for each state transition. Remember that as soon as the instance is created we give it a state of `created`. With thresholds, the controlplane also gives it a lifetime in which the instance remains in that state.
-
-Expiry example: Say that, for some reason, a ci job runs far longer than it should. (ie. longer than the default or defined `max-runtime-min`). Then the threshold timestamp that is defined along with the `running` ticks over to the past. Internally, this tells us that the instance has been at this state longer than it probably should. As such, is thought of internally in the controlplane as "expired".
-
-So the question is ... who looks at these thresholds?
-
-### Who looks at this threshold?
-
-Good question! These thresholds exists so that they can be observed. On instance transitions, one of the questions that needs to be answered is whether the instance has expired (ie. how does the threshold timestamp compare to the system timestamp that is viewing the instance threshold?).
-
-Then if the instance has already expired, then the transition fails and the controlplane (hopefully) handles this gracefully.
-
-For example, if selection picks up an expired instance from the pool, then it just discards of the instance from the pool and looks for another instance in the resource pool for pickup.
-
-If for some reason  
-
-So let's imagine this. We have configured our controlplane correctly. Now that our instance is being reused, let's look at some of the ways that this instance can fall through the cracks. We'll get an insight on various mechanisms in the controlplane that causes an instance to get safely terminated (or atleast as safe as we can make it to be).
-
-Aight so its now running one of your ci jobs. Say that in this workflow, you're generally expecting a quick ci job turnaround. So you se the `max-runtime-min` to say 10 mins on the provision level. Say that your workflow looks somethink like:
-
-```
-provision(max-runtime-min: 10)->test->release
+```json
+{
+  "instanceId": "i-123",
+  "state": "created",
+  "runId": "90123546",
+  "threshold": "2025-05-31T21:31:44.242Z"
+}
 ```
 
-Then test takes way more than 10minutes. What happens then? Well from the perspective of the contolpane, this instance is determined as "expired". This is because for each state transition, we also add a `threshold`. This is a timestamp sometime in the future
+Under this scheme, each state has a finite lifetime:
+
+- created: If an instance never finishes initialization (e.g., the pre-runner script or GitHub Actions registration never completes), its “created” threshold will expire.
+- running: If a CI job exceeds its allotted runtime (say you set max-runtime-min: 10), the instance’s “running” threshold (now + 10 minutes) will expire.
+- idle: If an instance sits in the resource pool longer than expected (no new workflows claiming it), its “idle” threshold will expire.
+
+Thresholds help the control plane spot “orphaned” or misconfigured instances:
+
+- No workflow reuse: If a workflow never calls release (or release fails), an instance might stay in running indefinitely. Once its “running” threshold passes, it’s marked expired.
+- Hung CI jobs: A job that vastly exceeds max-runtime-min also causes the “running” threshold to elapse, marking the instance as expired.
+- Low CI activity: If CI traffic drops and instances linger idle in the pool, their “idle” thresholds eventually expire.
+
+### Who Observes These Thresholds?
+
+Thresholds only do any good if some component constantly compares them against the current time. Observation of the threshold generally happens in three places within the controlplane.
+
+1. Any State Transitions: Whenever we change the internal represented state of an instance from state to another, it is predicated on a condition that the `threshold` indicates that the instance has not yet expired. Otherwise the state transition fails and the controlplane handles this gracefully (ie. if it picks up an instance from the resource pool that's been there for too long, the `idle->claimed` transition can also fail when the internal record says that the threshold is already at some point in the past)
+2. Refresh: Recall how we configure `refresh` at start - it executes with cron as a standalone workflow. One of the jobs of running the controlplane in refresh mode is to reap any instances that have expired state-lifetimes. Essentially, it transitions these instances in to `any->terminated` with the condition that they have thresholds indicating expired. Then for any successful transitions, a termination signal to AWS is sent.
+3. Self-termination: The controlplane adds an agent within the instance itself to periodically observe its own threshold. Once the fetched threshold is indicated to be in the past (ie. expired), then the instance itself sends a termination signal to AWS. So this is pretty sick, instances are able self terminate.
+
+All these components help to safely terminate instances in a timely manner.
 
 ## Controlplane - A deeper dive in to modes of operation
 

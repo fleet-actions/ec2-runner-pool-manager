@@ -6,6 +6,7 @@ theme:
     logo: material/bird
   features:
     - content.code.copy
+    - navigation.footer
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
@@ -49,9 +50,13 @@ nav:
       - Quickstart: getting-started/quickstart.md
       - Advanced Configuration: getting-started/advanced-configuration.md
       - Monitoring and Troubleshooting: getting-started/monitoring-troubleshooting.md
+  # - Case Study: case-study.md
   - Architecture:
       - Overview: architecture/overview.md
-      - How It Works: architecture/how-it-works.md
+      - Refresh: architecture/refresh.md
+      - Provision: architecture/provision.md
+      - Release: architecture/release.md
+      - Instance: architecture/instance.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md
       - Advanced Scenarios: examples/advanced-scenarios.md

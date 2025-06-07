@@ -43,7 +43,7 @@
     "@aws-sdk/client-dynamodb": "^3.772.0",
     "@aws-sdk/client-ec2": "^3.772.0",
     "@aws-sdk/client-sqs": "^3.782.0",
-    "@aws-sdk/lib-dynamodb": "^3.778.0",
+    "@aws-sdk/lib-dynamodb": "^3.810.0",
     "@smithy/util-waiter": "^4.0.3",
     "crypto-js": "^4.2.0",
     "dayjs": "^1.11.13"

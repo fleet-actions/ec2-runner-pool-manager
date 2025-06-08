@@ -42,6 +42,8 @@ markdown_extensions:
   - def_list
   - pymdownx.tasklist:
       custom_checkbox: true
+  - pymdownx.tabbed:
+      alternate_style: true
 
 nav:
   - Home: index.md
@@ -53,10 +55,9 @@ nav:
   # - Case Study: case-study.md
   - Architecture:
       - Overview: architecture/overview.md
-      - Refresh: architecture/refresh.md
       - Provision: architecture/provision.md
       - Release: architecture/release.md
-      - Instance: architecture/instance.md
+      - Refresh: architecture/refresh.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md
       - Advanced Scenarios: examples/advanced-scenarios.md

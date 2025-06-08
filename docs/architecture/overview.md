@@ -1,6 +1,6 @@
 # Detailed Design
 
-## 🔍 Detailed Architecture Overview
+## Detailed Architecture Overview
 
 Below is the detailed architecture diagram showcasing all components:
 
@@ -13,7 +13,7 @@ The core components in more detail:
 - **Central State Store (DynamoDB)**: Maintains current instance state, signaling indirectly between controlplane and instances.
 - **Instances/Runners**: EC2 machines executing the actual CI jobs.
 
-## 🔑 Core Concepts Expanded
+## Core Concepts Expanded
 
 Let's clearly expand the foundational concepts briefly introduced in [index.md](../index.md):
 
@@ -256,3 +256,16 @@ When the refresh worker which executes via cron sees an expired instance, it iss
 For redundancy, the instance itself observes its own lifetime. If it sees that it has expired, it and issues a termination command directly to AWS to terminate itself.
 
 These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy, efficient, and cost-effective by automatically cleaning up unused or problematic instances.
+
+## Technical Deep Dives
+
+With this in mind, we are in a good place to look at each components of the controlplane in more detail. This following section is by no means a exhaustive account of every mechanism but rather goes in to detail the challenges and solutions used - follow the links below:
+
+- [Provision](./provision.md): In here, we will explore exactly how the controlplane decides whether to reuse an existing instance or create new EC2 resources, including selection logic, resource matching, and AWS API interactions.
+- [Release](./release.md): Understand precisely how the controlplane safely returns instances to the resource pool, including the details of runner deregistration, state cleanup, and readiness verification.
+- [Refresh](./refresh.md): Dive into initialization and maintenance and how periodic checks ensure instance health and proper expiration, detailing threshold enforcement, instance termination logic, and health monitoring mechanisms.
+
+To see other components that supplement the controlplane, see below:
+
+- [Resource Pool](../todo.md): Covers how SQS backs the resource pool and how the messages within it are structured.
+- [Instances](../todo.md): Covers how the instances know when to safely register and deregister from Github and other responsibilities like the heartbeat probe and facilitating safe self-termination.

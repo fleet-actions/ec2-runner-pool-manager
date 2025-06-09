@@ -154,6 +154,14 @@ The **Post-Provision** component is responsible for gracefully handling successf
 
 ### Successful Provisioning
 
+We reach this sub-component in provision if all prior components have played nicely with all the compute requirements that the workflow demands. The job of successful provisioning is fairly simple! Simply transition all created and selected instances to `running` as they are now ready to pickup ci jobs!
+
 ### Unsuccessful Provisioning
 
+The purpose of this sub-component is to gracefully handle unsuccessful instance creation (ie. InsufficientCapacity, etc.) This component essentially re-releases any selected instances back to the RP for reuse - that is, the selected instances are transitioned from claimed to idle, then placed in the RP
+
 ### Something went wrong: Dumping Resources
+
+The purpose of this subcomponent is a hard dump of any selected and created resources in case provision encounters any unhandled errors. This is more of a safety mechanism to ensure that the operator is not left with orphaned instances and to make provision more transparent in its ability to output errors.
+
+This sub component sends TerminateInstances signals to AWS in addition to deletion from internal state.

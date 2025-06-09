@@ -62,7 +62,7 @@ The Pickup Manager (PM) is an in-process singleton inside the control-plane that
 | 2    | *Immediate* DeleteMessage  | Remove the message from the queue to minimise contention with other PMs. | The message lives only in memory until we decide to re-queue.|
 | 3    | Filter in-memory  | Check static attributes (usageClass, instanceType, CPU, memory, resourceClass, etc.) against the workflow’s provision inputs.| No network round-trips during filtering.|
 | 4a   | Pass-On -> Claim Worker| If the message matches, hand it to the requesting Claim Worker for final health & registration checks.| Claim Worker now owns this instance.    |
-| 4b   | Re-queue -> SendMessage| If the message doesn’t match, push it straight back onto the RP queue.  | Uses the original body; a short `DelaySeconds` (e.g., 1 s) prevents the PM from hot-looping the same bad message. |
+| 4b   | Re-queue -> SendMessage| If the message doesn’t match, push it straight back onto the RP queue.  | Uses the original body; a short `DelaySeconds` (e.g., 3 s) prevents the PM from hot-looping the same bad message. |
 
 #### 2. Message Format Example
 
@@ -106,14 +106,19 @@ Re-queue (filter miss)
 
 #### 4. Pool Exhaustion
 
-!!! note "Pool Exhaustion"
-    If the PM sees the same instanceId reappear N times (default 5) during a single Provision attempt, it considers the queue “exhausted” for this workflow and returns null to the caller—triggering the Creation sub-component.
+When the PM deems the pool as exhausted, it returns `null` to any requesting claim workers. The PM determines that a pool is exhausted via two means - Globally exhausted & Locally Exhausted
+
+**Globally Exhausted**
+This is fairly simply, the SQS queue does not give back any messages after a `ReceiveMessage` call. Meaning that the queue is empty and there are no available idle instances (atleast that we know about)
+
+**Locally Exhausted**
+This is more of a mitigation to prevent infinite looping due to the requeueing messages that do not fit the current workflow's constraints. If the singleton PM sees the same instanceId reappear N times (default 5), it considers the queue “exhausted” for this workflow and returns null to any calling Claim Worker.
 
 Overall - this tight, stateless loop lets Provision chew through dozens of SQS messages per second, favouring warm-runner reuse while falling back to fresh EC2 capacity only when necessary.
 
 ### Claim Workers
 
-Claim Workers are lightweight async tasks—implemented as JavaScript Promises and launched in parallel with `Promise.allSettled()` - that attempt to turn idle runners into ready-to-run resources for the current workflow. For a workflow requesting N instances, the control-plane spawns `N` Claim Workers concurrently.
+Claim Workers are lightweight async tasks - implemented as JavaScript `Promises` and launched in parallel with `Promise.allSettled()` - that attempt to turn idle runners into ready-to-run resources for the current workflow. For a workflow requesting N instances, the control-plane spawns `N` Claim Workers concurrently.
 
 Key responsibilities:
 
@@ -127,9 +132,9 @@ Key responsibilities:
            └─────── success → state: idle → claimed → running
 ```
 
-- Parallelism  — workers race to secure runners; slow or ineligible candidates drop out without blocking others.
+- Parallelism  — workers race to secure runners
 - Atomic state transitions  — each worker performs a conditional idle->claimed update to guarantee exclusive ownership.
-- Liveness & health  — before handing the instance to the workflow, the worker validates heartbeats and registration status.
+- Liveness & health — before handing the instance to the workflow, the worker validates heartbeats and registration status.
 
 #### Instance Claiming
 
@@ -166,14 +171,16 @@ Example record transition
 
 #### Post-Claim Checks (Health + Registration)
 
-Once an instance is claimed, the Claim Worker enters a short polling loop that watches two lightweight signals written by the instance itself into DynamoDB. Because the instance publishes its own health and registration state, the control-plane never needs to call the EC2 or GitHub APIs.
+Once an instance is claimed, the Claim Worker enters a polling loop that watches two lightweight signals written by the instance itself into DynamoDB. Because the instance publishes its own health and registration state, the control-plane never needs to call the EC2 or GitHub APIs which mitigates any API rate limits.
 
 Before the worker resolves as fulfilled, it verifies that the claimed instance is genuinely ready:
 
-| Check | Where it’s stored | Pass condition | Timeout |
-|------|-------|----------|--------|
-| Heartbeat | Heartbeat item – one row per instance | `now - updatedAt ≤ HEARTBEAT_HEALTH_TIMEOUT`  | about ~15s   |
-| Registration  | WorkerSignal item – produced when instance intends to send any bespoke signals    | `signal` is indicates successful registration **and** `runId` matches workflow’s `runId` | about ~10s    |
+```text
+| Check         | Stored in                         | Pass Condition                                   | Timeout |
+|---------------|-----------------------------------|--------------------------------------------------|---------|
+| Heartbeat     | HB item (`TYPE#Heartbeat`)        | `now - updatedAt ≤ HEARTBEAT_HEALTH_TIMEOUT`       | ~15 s   |
+| Registration  | WS item (`TYPE#WS`)               | signal == `"UD_REG_OK"` AND runId matches workflow | ~10 s   |
+```
 
 ??? note "Representations in DynamoDB"
     Heartbeat
@@ -195,76 +202,25 @@ Before the worker resolves as fulfilled, it verifies that the claimed instance i
     }
     ```
 
-**Success Path**
-All checks pass → the worker flips the instance claimed → running, resolves its Promise with the instance ID, and exits.
+!!! note "Health Timeout and Signal Timeouts"
+    At the moment, these timeouts are not tunable and entirely internal within the controlplane
+
+**How the instance knows what to send**
+
+The runner’s registration loop detects the new runId, registers with GitHub, then writes the WorkerSignal record shown above.
+
+**Success path**
+
+- Both checks pass before their respective timeouts.
+- Claim Worker resolves its promise, and returns the instance ID and instance details back to the Provision orchestrator.
 
 **Failure Path**
-Any check fails or the threshold expires →
 
-- If any failures are encountered with an instance within the claim worker, it is intentionally expired and terminated.
-- logs the reason for observability,
-- rejects its Promise so the orchestrator can decide to retry or fall back to instance creation.
+- Missing or stale heartbeat or no registration signal within registrationTimeout →
+- Claim Worker expires and terminates the instance and logs the reason, and retries with a new candidate.
+- If the pool is exhausted, the claim worker exits with no instance details (instance creation soon follows)
 
-Using async Promise chains keeps Claim Workers simple and parallel while enforcing isolation and health guarantees.
-
-### Claim Worker
-
-As before, we internally create as many claim workers as the amount of resources that the workflow needs. These claim workers interact with the PM to get a valid instance. Theres a few things that the claim worker does to further evaluate the validity of the instance for the workflow:
-
-**Claiming**
-
-The first thing that the worker does is to claim the instance. At a lower level, this is a state transition backed by DDB's conditional update. The condition being, at the time of update, the record has to be of:
-
-- The following state `idle`
-- The following runId `""` (empty runId)
-
-This conditional update functions to solve the problem where multiple workflows are trying to claim the same resource, only one instance can succeed. If a claim is successful, this internal record guarantees isolation. This is claiming looks like:
-
-```json
-// state idle->claimed, runId: ""->"run-9999", new threshold assigned
-{
-  "instanceId": "i-123456",
-  "state": "claimed",
-  "runId": "run-9999", 
-  "threshold": "2025-05-31T12:30:00Z"
-}
-```
-
-Again, the new runId is the workflow runId that provision is running in.
-
-**Post Claim Checks**
-
-After being claimed, our instance undergoes final checks before the worker considers it valid. Finally we do some checks on the instance itself. First of all, we check if the instance is still healthy. The way that we do this is via checking time in which the heartbeat record was updated (see the [instance page](../todo.md) to see what exactly this looks like). The evaluation of whether an instance is healthy is defined by the heartbeat period multiplied by 3.
-
-So for example, if the heartbeat period is 5s, an instance is only healthy if the heartbeat came in to the database within the last 15s.
-
-Finally, if healthy, we then look for the registration signal.
-
-See, then we transition changes the `runId`, an internal system within instance detects this change `runId` and starts a registration routine (see the [instance page](../todo.md) to see how this works exactly). Anyway, this registers the instance against the `runId` allowing it to pickup jobs for the workflow.
-
-Once this registration is successful, it sends a registration signal to the database which our controlplane detects. (see the [instance page](../todo.md) to see what this looks like exactly). After seeing this registration signal, the claim worker deems the instance fit for running and effectively hands it off to the `post-provision` routine for the final state transition (see this below).
-
-### Problem: How can the Pickup Manager know the Resource Pool is "Exhausted"
-
-**Single Invalid Message**
-
-Now theres a problem here. Imagine this scenario - you have one workflow that needs a very specific instance type. Say `r6*`. But the resource in the pool has a type `c6i.large`. As before, the PM picks this up, inspects it, and requeues it - then the PM re-inspects the queue again and gets the same instance! We're stuck in a loop!
-
-So to solve this problem, the PM singleton has an internal criteria of evaluating if a queue is exhausted. What it does it that it keeps tabs of how many times it has encountered a specific id. If it has encountered it a handle of times (about 5 times), then it consideres the queue as "exhausted" - and returns a `null` to any requesting claim worker - indicating pool exhaustion.
-
-!!! note "Relative exhaustion"
-    As such, we can see that a RP can still have messages in it while being classified as exhausted. This brings us to another nice side effect. RP exhaustion is not a global thing, its relative to the workflow level. IE one can see a workflow and see it as exhausted whereas another can view is as not exhausted.
-
-**Many Invalid Messages**
-
-BUT ... we still have a problem here. Imagine again that we have MANY `"c*"` instances in the pool BUT the workflow is picky (still needs a specific `r6*` instance)! As per our overview of [resource pool](../todo.md), the designed partitioning does not help here, so what will happen?
-
-Well, the PM will have to cycle through the resource pool a few times to recognize that it has been exhausted. In this worst case scenario, the time for selection grows in proportion to the amount of invalid messages in the queue.
-
-Thankfully, from my testing, the PM is able to go through ~50 SQS messages per second, so I dont think this could be too much of an issue until you're running 100s of machines with really diverse and specific needs for CI.
-
-!!! bug "Need to Add Thresholds to Messages"
-    For the PM to safely disregard messages, there needs to be a threshold attribute in the messages. Likely the same as the state threshold at the time that it is enqueued in the pool. This also means that we dont need to put the heartbeat check in the PM but can remain in the worker
+This fully internal, signal-driven health check keeps the control-plane stateless, fast, and API-independent while guaranteeing that only healthy, correctly registered runners reach the running state.
 
 ## Creation
 

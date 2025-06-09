@@ -1,52 +1,111 @@
 # Provision
 
-When running a github actions workflow, `provision` is the controlplane component that is responsible for ensuring that the required resources for a workflow is available prior to running ci jobs. This page covers the major sub-components of provision which makes this possible.
+Provision guarantees that each GitHub Actions workflow receives exactly the compute resources it needs—either by efficiently reusing existing idle instances or by quickly creating new EC2 runners on-demand.
+
+## Overview and Goals
+
+Provision is one of the core operational modes of the controlplane, specifically designed to ensure GitHub Actions workflows always have suitable EC2 instances ready to execute CI jobs promptly and reliably.
+
+The primary objectives of Provision are:
+
+- Resource Efficiency: Maximize the reuse of existing idle runners, reducing costs and startup latency.
+- Scalability: Provision new instances from AWS if no suitable idle runners are available, ensuring workflows never wait unnecessarily.
+- Isolation: Ensure safe, isolated assignment of resources to workflows, preventing conflicts or resource contention.
+
+Provision achieves these goals through two sub-components:
+
+ 1. Selection: Prioritizes reuse by selecting suitable idle runners from the resource pool.
+ 2. Creation: Provisioning new EC2 resources on-demand, using AWS fleet management.
+
+In the following sections, we’ll detail precisely how each of these sub-components operates internally.
 
 ## Selection
 
-Selection is a sub-component of `provision` that is designed to pickup and reuse any idle instances from the resource pool. This section covers what makes up selection in order to ensure that the instances are picked up, claimed and validated in a timely manner.
+### Overview of Selection
 
-### Resource Pool <---> Pickup Manager <---> Claim Workers
+Selection is the *reuse-first* branch of **Provision**.  
+Its sole mission is to satisfy a workflow’s compute request **without launching new EC2 capacity**.  
+It does this by rapidly scanning the **Resource Pool**, filtering messages that match the workflow’s constraints, and atomically **claiming** (locking) any suitable idle runners.
 
-Within selection, the bit that interfaces with the resource pool is the Pickup Manager(PM). A bunch of claim workers receives instances to inspect from this PM which then are used to facilitate the actual claiming and checking of health and registration. The claim workers work in parallel to ensure that selection is done in a timely manner (we want to know as soon as possible if the resourcepool can or cannot fulfill the workflow's requirements). The amount of claim workers defined to be equal to the amount of resources `provision` requires (ie. `instance-count` parameter).
+**Why it exists**
 
-To better see this interation, see below:
+- **Cost & latency:** Reusing a warm runner is cheaper and 10‑20× faster than cold‑starting a new instance.  
+- **Isolation:** Conditional updates in DynamoDB ensure that even when many workflows race for the same runner, only one can claim it.  
+- **Safety:** Health, heartbeat‑recency, and registration checks prevent unhealthy or mis‑registered instances from being reused.
 
-```mermaid
-flowchart LR
-    RP["Resource Pools"] <--> PM[Pickup Manager]
-    PM --> CW1[Claim Worker 1]
-    PM --> CW2[Claim Worker 2]
-    PM --> CW3[Claim Worker 3]
-```
+**High‑level flow**
 
-### Resource Pool <---> Pickup Manager
+1. **Pickup Manager** dequeues messages from the SQS‑backed Resource Pool and filters by static attributes (`usageClass`, `instanceType`, CPU/Memory).
+2. Valid messages are handed to **Claim Workers** (spawned in parallel, one per requested runner).
+3. Each Claim Worker performs an atomic *idle->claimed* transition in DynamoDB.  
+   - On success: runs final health + registration checks and hands the instance to *Post-Provision*.  
+   - On failure: instance is released/requeued and the worker asks the Pickup Manager for another candidate.
+4. If all workers report **pool exhausted**, control passes to the **Creation** sub‑component to launch fresh instances.
 
-Lets look at the resource pool to Pickup manager interface. When a claim worker requests a resource, the pickup manager interfaces directly with SQS. It gets the message from SQS which generally looks something like this (note that the message is immediately deleted from SQS to reduce resource contention):
+With that context, let’s dive into the concrete interfaces used by the Pickup Manager and Claim Workers.
+
+### Resource Pool & Pickup Manager
+
+The Resource Pool (RP) is implemented as a family of SQS queues—one queue per runner class.
+Each idle runner is represented by exactly one JSON message in the queue.
+The Pickup Manager (PM) is an in-process singleton inside the control-plane that does three jobs:
+
+ 1. Dequeue a candidate message from the RP.
+ 2. Filter the message against the requesting workflow’s compute requirements.
+ 3. Dispatch the message to a Claim Worker (or re-queue it if unsuitable).
+
+#### 1. Interfacing with SQS
+
+| Step | SQS Call  | Purpose  | Notes   |
+|------|-----------|----------|---------|
+| 1    | `ReceiveMessage` | Pull one message off the RP queue. | A short poll keeps latency low. |
+| 2    | *Immediate* DeleteMessage  | Remove the message from the queue to minimise contention with other PMs. | The message lives only in memory until we decide to re-queue.|
+| 3    | Filter in-memory      | Check static attributes (usageClass, instanceType, CPU, memory, resourceClass, etc.) against the workflow’s provision inputs.| No network round-trips during filtering.|
+| 4a   | Pass-On -> Claim Worker| If the message matches, hand it to the requesting Claim Worker for final health & registration checks.| Claim Worker now owns this instance.    |
+| 4b   | Re-queue -> SendMessage| If the message doesn’t match, push it straight back onto the RP queue.  | Uses the original body; a short `DelaySeconds` (e.g., 1 s) prevents the PM from hot-looping the same bad message. |
+
+#### 2. Message Format Example
+
+This is the representation of an idle instance within the SQS-backed RP
 
 ```json
 {
-  "instanceId": "i-123456",
+  "instanceId": "i-12345678",
   "usageClass": "on-demand",
   "instanceType": "c6i.large",
   "cpu": 2,
-  "mmem": 4096
+  "mem": 4096,
+  "resourceClass": "medium",
+  "threshold": "2025-05-31T12:20:00Z"
 }
 ```
 
-There are two actions that the pickup manager can do once a message has been picked up from the pools - Requeue the message or Pass on to Claim Workers. Lets look at each in detail:
+| Field  | Type   | Purpose        |
+|----------------|--------|----------------------------------------------------------------|
+| `instanceId`   | string | EC2 ID, primary key for subsequent DynamoDB look-ups  |
+| `usageClass`   | enum   | `spot` \| `on-demand` — must match workflow request    |
+| `instanceType` | string | Concrete EC2 type; pattern-matched by `allowed-instance-types` |
+| `cpu` / `mem`  | int    | Sizing hints for workflows that specify minimum resources      |
+| `resourceClass`| string | Coarse label (small / medium / large) for quick filtering      |
+| `threshold`    | ISO8601| When the RP entry itself expires; prevents zombie messages     |
 
-- Requeue to Pool: Given the message above. Imagine that your provision configuration is something like this:
+#### 3. Message Handling Logic
 
-    ```yaml
-    with:
-      mode: provision
-      allowed-instance-types: "m* r*" # <--- not c*
-    ```
+Pass-On (happy path)
 
-    What we can see is that the instance is not valid for the workflow due to the mismatch in instance types. As such, the message is simply requeued or put back to the resource pool for others to inspect. Keep in mind that this is the same for when we define other attributes like the usage-class and the resource-class.
+1. Message matches all workflow constraints.
+2. PM hands it to the waiting Claim Worker.
+3. Claim Worker performs atomic idle → claimed transition in DynamoDB.
+4. On success, the instance proceeds to health/registration checks.
 
-- Passed to Claim Worker: Say that the message fits the constraints of the provision, then the pickup manager simply passes the message to the requesting claim worker!
+Re-queue (filter miss)
+
+1. Message fails any constraint check (e.g., wrong usageClass, CPU too small).
+2. PM immediately SendMessages the exact payload back to SQS with a short DelaySeconds.
+3. Other workflows (with different constraints) can now claim the instance.
+
+!!! note "Pool Exhaustion"
+    If the PM sees the same instanceId reappear N times (default 5) during a single Provision attempt, it considers the queue “exhausted” for this workflow and returns null to the caller—triggering the Creation sub-component.
 
 ### Claim Worker
 

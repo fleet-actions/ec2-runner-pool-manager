@@ -40,7 +40,8 @@ export class ApplicationOperations {
   async sendMessage(queueUrl: string, messageBody: string) {
     const command = new SendMessageCommand({
       QueueUrl: queueUrl,
-      MessageBody: messageBody
+      MessageBody: messageBody,
+      DelaySeconds: 3
     })
 
     return await this.sqsClient.getClient().send(command)

@@ -49,33 +49,88 @@ See linked pages:
 - [Resource Pool and Pickup Manager](./selection/resource-pool-and-pickup-manager.md)
 - [Claim Workers](./selection/claim-workers.md)
 
-## Creation
+## Creation (Provisioning New Instances)
 
-Creation is a sub-component of `provision` that is designed to work with AWS to create any instances if the RP cannot fulfill the workflow's compute requirements. This section should be vastly simpler then selection.
+### Overview of Creation
 
-### Fleet Creation
+Sometimes the resource pool simply can’t meet the workflow’s constraints (instance type, CPU, memory, usage-class, or sheer quantity). When that happens, provision falls back to Creation:
 
-When creating the instance, we use the EC2 CreateFleet API which leverages [*attribute-based instance type selection*](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-fleet-attribute-based-instance-type-selection.html). The major attributes defined here essentially dictated a lot of the exposed interface for provision. That is defining the usage-class (on-demand v spot), allowed-instance-types (filtering by instance types with pattern matching), resource-class (cpu and mmem demands).
+ 1. Pool Exhausted or No Match: The Pickup Manager signals that no suitable idle instances are available.
+ 2. Provision Escalates: Provision switches from reuse to create mode for any still-unmet capacity.
+ 3. Fresh Capacity in Seconds: A short-lived “fleet request” asks AWS for exactly the mix of instances that satisfy the remaining workflow requirements.
+ 4. Records Seeded: As soon as AWS returns the new instance IDs, each one recorded with `created` state, beginning its normal lifecycle.
 
-Internally, all we do is launch fleets with `type: instant` to immediately determine if AWS has enough resources to fulfill our request. AWS has this idea of [capacity pools](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-fleet-allocation-strategy.html) - which is why in [advanced configruation](../getting-started/advanced-configuration.md), I recommend inputting a subnet per availability zone and as generous `allowed-instance-types` as possible - especially if your compute requirements are quite high.
+Creation is therefore the safety net that guarantees every workflow has compute, even when the pool is empty or under-provisioned.
 
-!!! note "Accounting for Insufficient Capacity Errors"
-    If, for some reason, the fleet request is only able to a part of the requested fleet - the AWS api throws the [InsufficientInstanceCapacity error](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-ec2-fleet.html#create-ec2-fleet-procedure). In this case, we consider the fleet as "partially" fulfilled which immediately prompts provision to terminate any created instances to ensure no orphaned instances.
+### EC2 Fleet Creation
 
-!!! note "No retries"
-    If, for some reason, AWS tells us that there's insufficient capacity - no retry mechanism to provision remaning instances. This rarely happens if the user is generous with allowed-instance-types and have configured refresh to reference as many subnets as there are availability zones (so that the fleet request has access to the largest amount of capacity pool for that aws region)
+#### AWS API Used — `CreateFleet (type =instant)`
 
-Straight after the fleet has been created, we get the instance ids from AWS. This allows us to then register the instances straight away in our internal database with a `created` state and specified threshold (thus now giving it a lifetime). This initially looks like:
+Provision issues a single [`CreateFleet` call with Type=instant](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-ec2-fleet.html), which tells AWS to indicate to us if at this moment in time, there's enough in their capacity pools to fulfill our request or or fail fast. This keeps the controlplane responsive.
+
+??? note "Simplified Create Fleet Call Input"
+    Say 3 on-demand instances
+    ```json
+    {
+      "Type": "instant",
+      "TargetCapacitySpecification": {
+        "TotalTargetCapacity": 3,
+        "DefaultTargetCapacityType": "on-demand",
+        "OnDemandTargetCapacity": 3
+      },
+      "LaunchTemplateConfigs": [ … ],
+    }
+    ```
+
+If AWS cannot fulfil every requested instance (e.g., InsufficientInstaceCapacity), Provision aborts the fleet, cleans up any partial capacity, and surfaces an error back to the workflow. We also clean up the partial capacity by sending TerminateInstances just in case.
+
+#### Attribute-Based Instance Type Selection
+
+Instead of hard-coding instance types, the fleet uses attribute-based filters so AWS can pick any instance family that satisfies the request, dramatically improving hit rates in constrained regions.
+
+??? note "Distilled example of the Launch Template overrides within Provision"
+    ```json
+    "LaunchTemplateConfigs": [
+      {
+        "LaunchTemplateSpecification": { "LaunchTemplateId": "lt-abc123", "Version": "$Default" },
+        "Overrides": [
+          {
+            "InstanceRequirements": {
+              "VCpuCount":   { "Min": 4, "Max": 4 },
+              "MemoryMiB":   { "Min": 4096 },
+              "IncludedInstanceTypes": ["c*", "m*"],
+            },
+            "SubnetId": "subnet-aaa…",
+          }
+        ]
+      }
+    ]
+    ```
+    How this maps to the Provision interface:
+
+    | Workflow Input     | Fleet Mapping          |
+    |----------|--------------|
+    | `allowed-instance-types: "c* m*"` | `IncludedInstanceTypes` mapped directly     |
+    | `resource-class: large`        | Populates `VCpuCount` & `MemoryMiB` ranges     |
+
+#### Why attribute-based matters
+
+- Maximises success probability: any size-compatible c* family (e.g., c6i, c7g) can be chosen.
+- Reduces operator toil: no need to update docs every time AWS launches a new generation.
+- Access to Multi-AZ Capacity Pools: Provision populates one override per subnet, so the fleet can pull capacity from whichever AZ still has it.
+
+Once AWS returns the instance IDs, each new runner is inserted into DynamoDB like so:
 
 ```json
-// new record in DB
 {
-  "instanceId": "i-123456",
+  "instanceId": "i-0abc12345",
   "state": "created",
   "runId": "run-7890",
-  "threshold": "2025-05-31T12:00:00Z" // timeout for 'created' state
+  "threshold": "2025-05-31T12:00:00Z"
 }
 ```
+
+From here, the Instance Initialization & Fleet Validation logic (described in the next subsection) takes over, ensuring every newly created runner is healthy, registered, and transitioned to running.
 
 ### Fleet Validation & Interactions
 

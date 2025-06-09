@@ -113,20 +113,40 @@ Creation is a sub-component of `provision` that is designed to work with AWS to 
 
 ### Fleet Creation
 
-When creating the instance, we use the EC2 CreateFleet API. This API is pretty great because we simply have to express what our computing needs are and AWS provisions them for us (and rejects if there our computing needs cannot be met. Ill link the API docs [here](../todo.md).
+When creating the instance, we use the EC2 CreateFleet API which leverages [*attribute-based instance type selection*](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-fleet-attribute-based-instance-type-selection.html). The major attributes defined here essentially dictated a lot of the exposed interface for provision. That is defining the usage-class (on-demand v spot), allowed-instance-types (filtering by instance types with pattern matching), resource-class (cpu and mmem demands).
 
-But, in terms of how we work with this internally, consider the following provision inputs:
+Internally, all we do is launch fleets with `type: instant` to immediately determine if AWS has enough resources to fulfill our request. AWS has this idea of [capacity pools](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-fleet-allocation-strategy.html) - which is why in [advanced configruation](../getting-started/advanced-configuration.md), I recommend inputting a subnet per availability zone and as generous `allowed-instance-types` as possible - especially if your compute requirements are quite high.
 
-```yaml
-with:
-  mode: provision
-  usage-class: on-demand
-  allowed-instance-types: "r6* m6* c6*"
-  resource-class: xlarge
-  instance-count: 10
+!!! note "Accounting for Insufficient Capacity Errors"
+    If, for some reason, the fleet request is only able to a part of the requested fleet - the AWS api throws the [InsufficientInstanceCapacity error](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-ec2-fleet.html#create-ec2-fleet-procedure). In this case, we consider the fleet as "partially" fulfilled which immediately prompts provision to terminate any created instances to ensure no orphaned instances.
+
+!!! note "No retries"
+    If, for some reason, AWS tells us that there's insufficient capacity - no retry mechanism to provision remaning instances. This rarely happens if the user is generous with allowed-instance-types and have configured refresh to reference as many subnets as there are availability zones (so that the fleet request has access to the largest amount of capacity pool for that aws region)
+
+Straight after the fleet has been created, we get the instance ids from AWS. This allows us to then register the instances straight away in our internal database with a `created` state and specified threshold (thus now giving it a lifetime). This initially looks like:
+
+```json
+// new record in DB
+{
+  "instanceId": "i-123456",
+  "state": "created",
+  "runId": "run-7890",
+  "threshold": "2025-05-31T12:00:00Z" // timeout for 'created' state
+}
 ```
 
 ### Fleet Validation & Interactions
+
+Once instances have been created, they immediately execute the user data script that the controlplane configures for the instance. To see the details of this user data, see the [instances page](../todo.md).
+
+But at a high level, this the instance to send various signals to the controlplane after:
+
+- The pre-runner-script has been executed
+- And the isntance has been registered against the runId (as picked up from the `created` record as above)
+
+On the controlplane side, fleet validation is essentially a routine which validates fleet initialization. For a specified period of time , it looks for these signals. In addition to a final healthcheck, the fleet is considered valid if registration signals are seen by the controlplane from the created instances within the specified timeout!
+
+Then the fleet validation routine concludes.
 
 ## Post-Provision
 

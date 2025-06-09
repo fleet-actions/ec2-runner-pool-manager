@@ -132,6 +132,16 @@ Once AWS returns the instance IDs, each new runner is inserted into DynamoDB lik
 
 From here, the Instance Initialization & Fleet Validation logic (described in the next subsection) takes over, ensuring every newly created runner is healthy, registered, and transitioned to running.
 
+### Handling Insufficient Capacity
+
+If **any** part of the request fails (including partial fulfilment):
+
+1. Provision logs the `CreateFleet` error.  
+2. Immediately issues a single `TerminateInstances` for every ID returned.  
+3. Surfaces a clear `provision_failed` error to the workflow.
+
+Because AWS already retries internally across capacity pools, a second identical request is unlikely to succeed; failing fast and alerts operators to widen constraints or retry later.
+
 ### Fleet Validation & Interactions
 
 Once instances have been created, they immediately execute the user data script that the controlplane configures for the instance. To see the details of this user data, see the [instances page](../todo.md).

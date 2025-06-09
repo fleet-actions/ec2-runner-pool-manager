@@ -57,10 +57,10 @@ The Pickup Manager (PM) is an in-process singleton inside the control-plane that
 #### 1. Interfacing with SQS
 
 | Step | SQS Call  | Purpose  | Notes   |
-|------|-----------|----------|---------|
+|------|--|-|---------|
 | 1    | `ReceiveMessage` | Pull one message off the RP queue. | A short poll keeps latency low. |
 | 2    | *Immediate* DeleteMessage  | Remove the message from the queue to minimise contention with other PMs. | The message lives only in memory until we decide to re-queue.|
-| 3    | Filter in-memory      | Check static attributes (usageClass, instanceType, CPU, memory, resourceClass, etc.) against the workflow’s provision inputs.| No network round-trips during filtering.|
+| 3    | Filter in-memory  | Check static attributes (usageClass, instanceType, CPU, memory, resourceClass, etc.) against the workflow’s provision inputs.| No network round-trips during filtering.|
 | 4a   | Pass-On -> Claim Worker| If the message matches, hand it to the requesting Claim Worker for final health & registration checks.| Claim Worker now owns this instance.    |
 | 4b   | Re-queue -> SendMessage| If the message doesn’t match, push it straight back onto the RP queue.  | Uses the original body; a short `DelaySeconds` (e.g., 1 s) prevents the PM from hot-looping the same bad message. |
 
@@ -80,13 +80,13 @@ This is the representation of an idle instance within the SQS-backed RP
 }
 ```
 
-| Field  | Type   | Purpose        |
-|----------------|--------|----------------------------------------------------------------|
+| Field  | Type   | Purpose  |
+|-------|--------|-|
 | `instanceId`   | string | EC2 ID, primary key for subsequent DynamoDB look-ups  |
 | `usageClass`   | enum   | `spot` \| `on-demand` — must match workflow request    |
 | `instanceType` | string | Concrete EC2 type; pattern-matched by `allowed-instance-types` |
-| `cpu` / `mem`  | int    | Sizing hints for workflows that specify minimum resources      |
-| `resourceClass`| string | Coarse label (small / medium / large) for quick filtering      |
+| `cpu` / `mem`  | int    | Sizing hints for workflows that specify minimum resources  |
+| `resourceClass`| string | Coarse label (small / medium / large) for quick filtering  |
 | `threshold`    | ISO8601| When the RP entry itself expires; prevents zombie messages     |
 
 #### 3. Message Handling Logic
@@ -104,8 +104,108 @@ Re-queue (filter miss)
 2. PM immediately SendMessages the exact payload back to SQS with a short DelaySeconds.
 3. Other workflows (with different constraints) can now claim the instance.
 
+#### 4. Pool Exhaustion
+
 !!! note "Pool Exhaustion"
     If the PM sees the same instanceId reappear N times (default 5) during a single Provision attempt, it considers the queue “exhausted” for this workflow and returns null to the caller—triggering the Creation sub-component.
+
+Overall - this tight, stateless loop lets Provision chew through dozens of SQS messages per second, favouring warm-runner reuse while falling back to fresh EC2 capacity only when necessary.
+
+### Claim Workers
+
+Claim Workers are lightweight async tasks—implemented as JavaScript Promises and launched in parallel with `Promise.allSettled()` - that attempt to turn idle runners into ready-to-run resources for the current workflow. For a workflow requesting N instances, the control-plane spawns `N` Claim Workers concurrently.
+
+Key responsibilities:
+
+```
+┌─────────────┐    claim(N)     ┌─────────────────┐
+│ Pickup Msg  │ ─────────────▶ │ Claim Worker[N] │
+│ (from SQS)  │                │  Promise chain  │
+└─────────────┘                └─────────────────┘
+           ▲                          │
+           │                          ▼
+           └─────── success → state: idle → claimed → running
+```
+
+- Parallelism  — workers race to secure runners; slow or ineligible candidates drop out without blocking others.
+- Atomic state transitions  — each worker performs a conditional idle->claimed update to guarantee exclusive ownership.
+- Liveness & health  — before handing the instance to the workflow, the worker validates heartbeats and registration status.
+
+#### Instance Claiming
+
+1. Receive candidate from the Pickup Manager (an SQS message describing an idle instance).
+2. Conditional update in DynamoDB (single, atomic write):
+Condition state == "idle" && runId == ""
+Mutation state = "claimed", runId = `<workflow-runId>`, threshold = now + claimTimeout
+3. Collision handling — if the conditional write fails (another worker claimed first) the Promise rejects; the caller simply asks the Pickup Manager for another candidate.
+
+Example record transition
+
+```json
+// BEFORE (idle)
+{
+  "instanceId": "i-123456",
+  "state": "idle",
+  "runId": "",
+  "threshold": "2025-05-31T12:20:00Z"
+}
+```
+
+```json
+// AFTER (claimed)
+{
+  "instanceId": "i-123456",
+  "state": "claimed",
+  "runId": "run-9999",
+  "threshold": "2025-05-31T12:30:00Z"
+}
+```
+
+!!! note "Claim Lifetime"
+    Threshold limits how long the instance may remain claimed without finishing registration, ensuring hung claims self-expire.
+
+#### Post-Claim Checks (Health + Registration)
+
+Once an instance is claimed, the Claim Worker enters a short polling loop that watches two lightweight signals written by the instance itself into DynamoDB. Because the instance publishes its own health and registration state, the control-plane never needs to call the EC2 or GitHub APIs.
+
+Before the worker resolves as fulfilled, it verifies that the claimed instance is genuinely ready:
+
+| Check | Where it’s stored | Pass condition | Timeout |
+|------|-------|----------|--------|
+| Heartbeat | Heartbeat item – one row per instance | `now - updatedAt ≤ HEARTBEAT_HEALTH_TIMEOUT`  | about ~15s   |
+| Registration  | WorkerSignal item – produced when instance intends to send any bespoke signals    | `signal` is indicates successful registration **and** `runId` matches workflow’s `runId` | about ~10s    |
+
+??? note "Representations in DynamoDB"
+    Heartbeat
+    ```json
+    // Heartbeat record  (PK: TYPE#Heartbeat  SK: ID#i-123)
+    {
+      "value": "PING",
+      "updatedAt": "2025-05-31T12:27:05Z"
+    }
+    ```
+    Registration signals
+    ```json
+    // Registration signal  (PK: TYPE#WS  SK: ID#i-123)
+    {
+      value: {
+        "signal": "UD_REG_OK",
+        "runId": "run-9999",
+      }
+    }
+    ```
+
+**Success Path**
+All checks pass → the worker flips the instance claimed → running, resolves its Promise with the instance ID, and exits.
+
+**Failure Path**
+Any check fails or the threshold expires →
+
+- If any failures are encountered with an instance within the claim worker, it is intentionally expired and terminated.
+- logs the reason for observability,
+- rejects its Promise so the orchestrator can decide to retry or fall back to instance creation.
+
+Using async Promise chains keeps Claim Workers simple and parallel while enforcing isolation and health guarantees.
 
 ### Claim Worker
 

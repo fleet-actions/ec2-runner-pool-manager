@@ -59,6 +59,9 @@ nav:
       - Selection:
           - Resource Pool and Pickup Manager: architecture/selection/resource-pool-and-pickup-manager.md
           - Claim Workers: architecture/selection/claim-workers.md
+      - Creation:
+          - Fleet Creation: architecture/creation/fleet-creation.md
+          - Fleet Validation: architecture/creation/fleet-validation.md
       - Release: architecture/release.md
       - Refresh: architecture/refresh.md
   - Examples:

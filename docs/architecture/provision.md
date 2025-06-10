@@ -27,19 +27,13 @@ Selection is the *reuse-first* branch of **Provision**.
 Its sole mission is to satisfy a workflow’s compute request **without launching new EC2 capacity**.  
 It does this by rapidly scanning the **Resource Pool**, filtering messages that match the workflow’s constraints, and atomically **claiming** (locking) any suitable idle runners.
 
-**Why it exists**
-
-- **Cost & latency:** Reusing a warm runner is cheaper and 10‑20× faster than cold‑starting a new instance.  
-- **Isolation:** Conditional updates in DynamoDB ensure that even when many workflows race for the same runner, only one can claim it.  
-- **Safety:** Health, heartbeat‑recency, and registration checks prevent unhealthy or mis‑registered instances from being reused.
-
 **High‑level flow**
 
 1. **Pickup Manager** dequeues messages from the SQS‑backed Resource Pool and filters by static attributes (`usageClass`, `instanceType`, CPU/Memory).
-2. Valid messages are handed to **Claim Workers** (spawned in parallel, one per requested runner).
+2. Invalid messages are generally requeued, valid messages are handed to **Claim Workers** (spawned in parallel, one per requested runner).
 3. Each Claim Worker performs an atomic *idle->claimed* transition in DynamoDB.  
-   - On success: runs final health + registration checks and hands the instance to *Post-Provision*.  
-   - On failure: instance is released/requeued and the worker asks the Pickup Manager for another candidate.
+    - On success: runs final health + registration checks and hands the instance to *Post-Provision*.  
+    - On failure: instance is released/requeued and the worker asks the Pickup Manager for another candidate.
 4. If all workers report **pool exhausted**, control passes to the **Creation** sub‑component to launch fresh instances.
 
 With that context, let’s dive into the concrete interfaces used by the Resource Pool, Pickup Manager and Claim Workers.
@@ -53,140 +47,27 @@ See linked pages:
 
 ### Overview of Creation
 
-Sometimes the resource pool simply can’t meet the workflow’s constraints (instance type, CPU, memory, usage-class, or sheer quantity). When that happens, provision falls back to Creation:
+If the resource pool simply can’t meet the workflow’s needs - provision falls back to Creation. Here's a high‑level flow
 
- 1. Pool Exhausted or No Match: The Pickup Manager signals that no suitable idle instances are available.
- 2. Provision Escalates: Provision switches from reuse to create mode for any still-unmet capacity.
- 3. Fresh Capacity in Seconds: A short-lived “fleet request” asks AWS for exactly the mix of instances that satisfy the remaining workflow requirements.
- 4. Records Seeded: As soon as AWS returns the new instance IDs, each one recorded with `created` state, beginning its normal lifecycle.
+1. **Determine unmet capacity**  
+   Provision calculates how many additional runners are still required after Selection has finished, based on the workflow’s `instance-count` and resource specs.
 
-Creation is therefore the safety net that guarantees every workflow has compute, even when the pool is empty or under-provisioned.
+2. **Launch fleet request**  
+   A single `CreateFleet` (or `RunInstances` fallback) call asks AWS for the exact number and mix of instance types that satisfy CPU, memory, and `usageClass` constraints.
 
-### EC2 Fleet Creation
+3. **Seed the state store**  
+   As soon as AWS returns instance IDs, each one is recorded in DynamoDB with `state=created`, an initial `runId`, and a short `threshold` so Refresh can reap stalled boots.
 
-#### AWS API Used — `CreateFleet (type =instant)`
+4. **Fleet‑validation loop**  
+   Provision continuously polls for two signals:  
+      - **UD_REG** – the runner has completed user‑data bootstrap and registered with GitHub Actions.  
+      - **Heartbeat** – the runner is emitting heartbeats.  
+   All targets must report healthy within `FLEET_VALIDATION_TIMEOUT`; otherwise creation is marked **failed** and cleanup begins.
 
-Provision issues a single [`CreateFleet` call with Type=instant](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-ec2-fleet.html), which tells AWS to indicate to us if at this moment in time, there's enough in their capacity pools to fulfill our request or or fail fast. This keeps the controlplane responsive.
+See linked pages for more detail
 
-??? note "Simplified Create Fleet Call Input"
-    Say 3 on-demand instances
-    ```json
-    {
-      "Type": "instant",
-      "TargetCapacitySpecification": {
-        "TotalTargetCapacity": 3,
-        "DefaultTargetCapacityType": "on-demand",
-        "OnDemandTargetCapacity": 3
-      },
-      "LaunchTemplateConfigs": [ … ],
-    }
-    ```
-
-If AWS cannot fulfil every requested instance (e.g., InsufficientInstaceCapacity), Provision aborts the fleet, cleans up any partial capacity, and surfaces an error back to the workflow. We also clean up the partial capacity by sending TerminateInstances just in case.
-
-#### Attribute-Based Instance Type Selection
-
-Instead of hard-coding instance types, the fleet uses attribute-based filters so AWS can pick any instance family that satisfies the request, dramatically improving hit rates in constrained regions.
-
-??? note "Distilled example of the Launch Template overrides within Provision"
-    ```json
-    "LaunchTemplateConfigs": [
-      {
-        "LaunchTemplateSpecification": { "LaunchTemplateId": "lt-abc123", "Version": "$Default" },
-        "Overrides": [
-          {
-            "InstanceRequirements": {
-              "VCpuCount":   { "Min": 4, "Max": 4 },
-              "MemoryMiB":   { "Min": 4096 },
-              "IncludedInstanceTypes": ["c*", "m*"],
-            },
-            "SubnetId": "subnet-aaa…",
-          }
-        ]
-      }
-    ]
-    ```
-    How this maps to the Provision interface:
-
-    | Workflow Input | Fleet Mapping  |
-    ||----|
-    | `allowed-instance-types: "c* m*"` | `IncludedInstanceTypes` mapped directly |
-    | `resource-class: large`    | Populates `VCpuCount` & `MemoryMiB` ranges |
-
-#### Why attribute-based matters
-
-- Maximises success probability: any size-compatible c* family (e.g., c6i, c7g) can be chosen.
-- Reduces operator toil: no need to update docs every time AWS launches a new generation.
-- Access to Multi-AZ Capacity Pools: Provision populates one override per subnet, so the fleet can pull capacity from whichever AZ still has it.
-
-Once AWS returns the instance IDs, each new runner is inserted into DynamoDB like so:
-
-```json
-{
-  "instanceId": "i-0abc12345",
-  "state": "created",
-  "runId": "run-7890",
-  "threshold": "2025-05-31T12:00:00Z"
-}
-```
-
-From here, the Instance Initialization & Fleet Validation logic (described in the next subsection) takes over, ensuring every newly created runner is healthy, registered, and transitioned to running.
-
-#### Handling Insufficient Capacity
-
-If **any** part of the request fails (including partial fulfilment):
-
-1. Provision logs the `CreateFleet` error.  
-2. Immediately issues a single `TerminateInstances` for every ID returned.  
-3. Surfaces a clear `provision_failed` error to the workflow.
-
-Because AWS already retries internally across capacity pools, a second identical request is unlikely to succeed; failing fast and alerts operators to widen constraints or retry later.
-
-### Instance Initialization & Fleet Validation
-
-Once AWS returns the brand-new instance IDs, Provision’s job is only half-done. The control-plane must make sure every EC2 runner has finished bootstrapping, registered itself with GitHub Actions, and is sending healthy heartbeats before it hands the runner over to the workflow.
-That responsibility is split between two cooperating pieces:
-
-1. User-data bootstrap script that runs inside the instance.
-2. Fleet-validation routine that runs in the control-plane worker.
-
-#### 1. User-Data Bootstrap Flow
-
-The bootstrap script runs **inside every new runner**. To see the full functionality of this script, please see [user-data](./user-data.md). We'll cover whats relevant here. In sequence, this script:
-
-1. Executes the operator's pre-runner-script.
-2. Initializes the heartbeat and self-termination agents.
-3. Enters the registration loop.
-
-Within the registration loop, `blockRegistration` blocks the runner from registering itself against Github until a `runId` has been registered against the runner in the Database.
-
-Fortunately, we immediately create a `created` record in the database shortly after we get the instance ids from AWS along with the `runId`. The instance sees this and registers with that label.
-
-On successful registration, it emits a successful registration signal which the controlplane picks up.
-
-#### 2. Fleet‑Validation Routine
-
-After launching a fleet, the provision worker runs a short‑lived **validation loop** to be sure every brand‑new runner is *both* registered with GitHub **and** sending heartbeats.  
-If any instance fails these checks within the timeout, the whole fleet is torn down and the workflow receives a clear error.
-
-| Step | What the worker is waiting for | Success criteria | Failure action |
-|------|--------------------------------|------------------|----------------|
-| **1. Registration check** | Instance emits `UD_REG_OK` | All instances emit the signal | Abort: terminate the entire fleet |
-| **2. Heartbeat check** | Fresh heartbeat rows every ≤ `HEARTBEAT_PERIOD` | All instances meet the threshold | Abort: terminate the entire fleet |
-| **3. Global timeout** | Timer ≤ `FLEET_VALIDATION_TIMEOUT` (default = ~180s) | All checks pass before timeout | Abort: terminate the entire fleet |
-
-When *all* instances satisfy steps 1 & 2 before the global timeout:
-
-1. Update each record from `created->running`.  
-2. We determine the creation to be of status 'success' for post-provisioning
-3. Return control to the workflow dispatcher—jobs can begin immediately.
-
-If **any** instance misses a check or the timeout expires:
-
-- Call `TerminateInstances` on *every* new instance ID.  
-- We determine the creation to be of status 'failed' for post-provisioning
-
-This all‑or‑nothing policy keeps the fleet in a known‑good state and prevents half‑healthy capacity from slipping into production use.
+- [Fleet Creation](./creation/fleet-creation.md)
+- [Fleet Validation](./creation/fleet-validation.md)
 
 ## Post-Provisioning Actions
 

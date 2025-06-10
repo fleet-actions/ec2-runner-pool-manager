@@ -73,62 +73,6 @@ See linked pages for more detail
 
 The **Post-Provision** component is the final gate before the workflow can start running jobs (on success) — or before the control-plane rolls everything back (on failure).  
 
-It receives the aggregated results of **Selection** and **Creation**, reconciles them (`reconcileFleetState`), and then executes one of three clear paths.
+See linked page for more detail:
 
-### Successful Provisioning
-
-When **all** requested capacity is healthy — meaning:
-
-1. Every selected runner is healthy and registered during claim validation.
-2. Every newly created runner passed registration + heartbeat checks within the fleet-validation timeout.
-
-... the component routes to `processSuccessfulProvision`.
-
-**What happens next**
-
-| Step | Action | Detail |
-|------|--------|--------|
-| 1 | **Idle → Running** | Each runner’s DynamoDB record is updated from `claimed`/`created` to `running` with a fresh `threshold` (`now + maxRuntimeMin`). |
-| 2 | **Runner label confirmed** | The instance already registered itself with GitHub using the workflow’s `runId`; no further action required. |
-| 3 | **Return control** | The provision worker returns the list of runner IDs to the workflow dispatcher so jobs can start immediately. |
-
-Successful path is intentionally lightweight: just a couple of conditional writes and you’re in business.
-
-### Unsuccessful Provisioning
-
-If **any** part of the fleet fails validation — for example:
-
-- AWS couldn’t supply all requested instances  
-- A new runner skipped heartbeat  
-- A selected runner failed final health checks  
-
-... `reconcileFleetState` returns **failure**, and the code enters `processFailedProvision`.
-
-**Graceful rollback logic**
-
-| Step | Action | Purpose |
-|------|--------|---------|
-| 1 | **Release selected runners** | Transition `claimed → idle`, publish each back onto the resource-pool (SQS). |
-| 2 | **No-op for failed creations** | Newly created runners already received `TerminateInstances` inside the Creation step. |
-| 3 | **Surface clear error** | The Action is marked `failed` with a descriptive message so operators know capacity was unavailable, rather than masking the issue. |
-
-This leaves the pool intact, avoids orphaned claims, and makes the workflow fail fast instead of hanging.
-
-### Error Handling & Resource Cleanup (Safety Mechanism)
-
-If, at any point in provision, we encounter an unhandled exception - execution drops to the outer `catch` block and invokes `dumpResources`.
-
-**DumpResources routine**
-
-1. **Terminate EVERYTHING**  
-   *Both* selected (`instanceIds` still in memory) **and** newly created instances are terminated via a bulk `TerminateInstances` call.  
-2. **Purge state**  
-   Corresponding DynamoDB items are deleted to prevent zombie references.
-3. **Re-throw**  
-   The original error is re-thrown so the job fails visibly.
-
-This “nuclear option” guarantees you never leak capacity, even in the face of unhandled exceptions.
-
-!!! note
-    Success should be the 99 % path. Failed-but-graceful rollbacks cover expected scarcity or health problems.  
-    The dump-resources path is a last-resort guardrail, rarely exercised but critical for cost safety.
+- [Post Provision](./post-provision.md)

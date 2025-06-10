@@ -152,50 +152,102 @@ That responsibility is split between two cooperating pieces:
 
 #### 1. User-Data Bootstrap Flow
 
-The bootstrap script runs **inside every new runner**. To see the full functionality of this script, please see [user-data](./user-data.md). However, for what's relevant here, the moment that the instance is created from AWS, it runs this script and immediately executes the pre-runner-script and initializes the heartbeat and self-termination agents soon thereafter.
+The bootstrap script runs **inside every new runner**. To see the full functionality of this script, please see [user-data](./user-data.md). We'll cover whats relevant here. In sequence, this script:
 
-Once this is all done, the instance enters the registration loop and immediately registers itself against the runId as defined from the `created` record shortly after the creation of the instance when registered.
+1. Executes the operator's pre-runner-script.
+2. Initializes the heartbeat and self-termination agents.
+3. Enters the registration loop.
 
-#### Fleet-Validation Routine (need to refine)
+Within the registration loop, `blockRegistration` blocks the runner from registering itself against Github until a `runId` has been registered against the runner in the Database.
 
-On the control-plane side, the provision worker launches a short-lived validation loop:
+Fortunately, we immediately create a `created` record in the database shortly after we get the instance ids from AWS along with the `runId`. The instance sees this and registers with that label.
 
- 1. Watch for registered → marks the instance “ready”.
- 2. Verify heartbeats → considers a runner healthy iff the most recent heartbeat ≤ 3 × HEARTBEAT_PERIOD ago.
- 3. Overall timeout → if any instance in the fleet fails to reach “ready & healthy” within FLEET_VALIDATION_TIMEOUT (default = 300 s), the entire fleet is aborted:
- • All new instances are terminated (TerminateInstances).
- • Any previously claimed runners are returned to the pool.
- • Provision surfaces an error back to the workflow.
+On successful registration, it emits a successful registration signal which the controlplane picks up.
 
-If all instances pass validation, the worker transitions their DynamoDB records from created → running, clears the fleet context, and hands control back to the workflow dispatcher—jobs can now start immediately.
+#### 2. Fleet‑Validation Routine
 
-### Fleet Validation & Interactions (deprecated section)
+After launching a fleet, the provision worker runs a short‑lived **validation loop** to be sure every brand‑new runner is *both* registered with GitHub **and** sending heartbeats.  
+If any instance fails these checks within the timeout, the whole fleet is torn down and the workflow receives a clear error.
 
-Once instances have been created, they immediately execute the user data script that the controlplane configures for the instance. To see the details of this user data, see the [instances page](../todo.md).
+| Step | What the worker is waiting for | Success criteria | Failure action |
+|------|--------------------------------|------------------|----------------|
+| **1. Registration check** | Instance emits `UD_REG_OK` | All instances emit the signal | Abort: terminate the entire fleet |
+| **2. Heartbeat check** | Fresh heartbeat rows every ≤ `HEARTBEAT_PERIOD` | All instances meet the threshold | Abort: terminate the entire fleet |
+| **3. Global timeout** | Timer ≤ `FLEET_VALIDATION_TIMEOUT` (default = ~180s) | All checks pass before timeout | Abort: terminate the entire fleet |
 
-But at a high level, this the instance to send various signals to the controlplane after:
+When *all* instances satisfy steps 1 & 2 before the global timeout:
 
-- The pre-runner-script has been executed
-- And the isntance has been registered against the runId (as picked up from the `created` record as above)
+1. Update each record from `created->running`.  
+2. We determine the creation to be of status 'success' for post-provisioning
+3. Return control to the workflow dispatcher—jobs can begin immediately.
 
-On the controlplane side, fleet validation is essentially a routine which validates fleet initialization. For a specified period of time , it looks for these signals. In addition to a final healthcheck, the fleet is considered valid if registration signals are seen by the controlplane from the created instances within the specified timeout!
+If **any** instance misses a check or the timeout expires:
 
-Then the fleet validation routine concludes.
+- Call `TerminateInstances` on *every* new instance ID.  
+- We determine the creation to be of status 'failed' for post-provisioning
 
-## Post-Provision
+This all‑or‑nothing policy keeps the fleet in a known‑good state and prevents half‑healthy capacity from slipping into production use.
 
-The **Post-Provision** component is responsible for gracefully handling successful/unsuccessful provisioning in addition to a routine which dumps any provisioned resources when if something unexpected happens.
+## Post-Provisioning Actions
+
+The **Post-Provision** component is the final gate before the workflow can start running jobs (on success) — or before the control-plane rolls everything back (on failure).  
+
+It receives the aggregated results of **Selection** and **Creation**, reconciles them (`reconcileFleetState`), and then executes one of three clear paths.
 
 ### Successful Provisioning
 
-We reach this sub-component in provision if all prior components have played nicely with all the compute requirements that the workflow demands. The job of successful provisioning is fairly simple! Simply transition all created and selected instances to `running` as they are now ready to pickup ci jobs!
+When **all** requested capacity is healthy — meaning:
+
+1. Every selected runner is healthy and registered during claim validation.
+2. Every newly created runner passed registration + heartbeat checks within the fleet-validation timeout.
+
+... the component routes to `processSuccessfulProvision`.
+
+**What happens next**
+
+| Step | Action | Detail |
+|------|--------|--------|
+| 1 | **Idle → Running** | Each runner’s DynamoDB record is updated from `claimed`/`created` to `running` with a fresh `threshold` (`now + maxRuntimeMin`). |
+| 2 | **Runner label confirmed** | The instance already registered itself with GitHub using the workflow’s `runId`; no further action required. |
+| 3 | **Return control** | The provision worker returns the list of runner IDs to the workflow dispatcher so jobs can start immediately. |
+
+Successful path is intentionally lightweight: just a couple of conditional writes and you’re in business.
 
 ### Unsuccessful Provisioning
 
-The purpose of this sub-component is to gracefully handle unsuccessful instance creation (ie. InsufficientCapacity, etc.) This component essentially re-releases any selected instances back to the RP for reuse - that is, the selected instances are transitioned from claimed to idle, then placed in the RP
+If **any** part of the fleet fails validation — for example:
 
-### Something went wrong: Dumping Resources
+- AWS couldn’t supply all requested instances  
+- A new runner skipped heartbeat  
+- A selected runner failed final health checks  
 
-The purpose of this subcomponent is a hard dump of any selected and created resources in case provision encounters any unhandled errors. This is more of a safety mechanism to ensure that the operator is not left with orphaned instances and to make provision more transparent in its ability to output errors.
+... `reconcileFleetState` returns **failure**, and the code enters `processFailedProvision`.
 
-This sub component sends TerminateInstances signals to AWS in addition to deletion from internal state.
+**Graceful rollback logic**
+
+| Step | Action | Purpose |
+|------|--------|---------|
+| 1 | **Release selected runners** | Transition `claimed → idle`, publish each back onto the resource-pool (SQS). |
+| 2 | **No-op for failed creations** | Newly created runners already received `TerminateInstances` inside the Creation step. |
+| 3 | **Surface clear error** | The Action is marked `failed` with a descriptive message so operators know capacity was unavailable, rather than masking the issue. |
+
+This leaves the pool intact, avoids orphaned claims, and makes the workflow fail fast instead of hanging.
+
+### Error Handling & Resource Cleanup (Safety Mechanism)
+
+If, at any point in provision, we encounter an unhandled exception - execution drops to the outer `catch` block and invokes `dumpResources`.
+
+**DumpResources routine**
+
+1. **Terminate EVERYTHING**  
+   *Both* selected (`instanceIds` still in memory) **and** newly created instances are terminated via a bulk `TerminateInstances` call.  
+2. **Purge state**  
+   Corresponding DynamoDB items are deleted to prevent zombie references.
+3. **Re-throw**  
+   The original error is re-thrown so the job fails visibly.
+
+This “nuclear option” guarantees you never leak capacity, even in the face of unhandled exceptions.
+
+!!! note
+    Success should be the 99 % path. Failed-but-graceful rollbacks cover expected scarcity or health problems.  
+    The dump-resources path is a last-resort guardrail, rarely exercised but critical for cost safety.

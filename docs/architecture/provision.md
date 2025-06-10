@@ -108,10 +108,10 @@ Instead of hard-coding instance types, the fleet uses attribute-based filters so
     ```
     How this maps to the Provision interface:
 
-    | Workflow Input     | Fleet Mapping          |
-    |----------|--------------|
-    | `allowed-instance-types: "c* m*"` | `IncludedInstanceTypes` mapped directly     |
-    | `resource-class: large`        | Populates `VCpuCount` & `MemoryMiB` ranges     |
+    | Workflow Input | Fleet Mapping  |
+    ||----|
+    | `allowed-instance-types: "c* m*"` | `IncludedInstanceTypes` mapped directly |
+    | `resource-class: large`    | Populates `VCpuCount` & `MemoryMiB` ranges |
 
 #### Why attribute-based matters
 
@@ -132,7 +132,7 @@ Once AWS returns the instance IDs, each new runner is inserted into DynamoDB lik
 
 From here, the Instance Initialization & Fleet Validation logic (described in the next subsection) takes over, ensuring every newly created runner is healthy, registered, and transitioned to running.
 
-### Handling Insufficient Capacity
+#### Handling Insufficient Capacity
 
 If **any** part of the request fails (including partial fulfilment):
 
@@ -142,7 +142,34 @@ If **any** part of the request fails (including partial fulfilment):
 
 Because AWS already retries internally across capacity pools, a second identical request is unlikely to succeed; failing fast and alerts operators to widen constraints or retry later.
 
-### Fleet Validation & Interactions
+### Instance Initialization & Fleet Validation
+
+Once AWS returns the brand-new instance IDs, Provision’s job is only half-done. The control-plane must make sure every EC2 runner has finished bootstrapping, registered itself with GitHub Actions, and is sending healthy heartbeats before it hands the runner over to the workflow.
+That responsibility is split between two cooperating pieces:
+
+1. User-data bootstrap script that runs inside the instance.
+2. Fleet-validation routine that runs in the control-plane worker.
+
+#### 1. User-Data Bootstrap Flow
+
+The bootstrap script runs **inside every new runner**. To see the full functionality of this script, please see [user-data](./user-data.md). However, for what's relevant here, the moment that the instance is created from AWS, it runs this script and immediately executes the pre-runner-script and initializes the heartbeat and self-termination agents soon thereafter.
+
+Once this is all done, the instance enters the registration loop and immediately registers itself against the runId as defined from the `created` record shortly after the creation of the instance when registered.
+
+#### Fleet-Validation Routine (need to refine)
+
+On the control-plane side, the provision worker launches a short-lived validation loop:
+
+ 1. Watch for registered → marks the instance “ready”.
+ 2. Verify heartbeats → considers a runner healthy iff the most recent heartbeat ≤ 3 × HEARTBEAT_PERIOD ago.
+ 3. Overall timeout → if any instance in the fleet fails to reach “ready & healthy” within FLEET_VALIDATION_TIMEOUT (default = 300 s), the entire fleet is aborted:
+ • All new instances are terminated (TerminateInstances).
+ • Any previously claimed runners are returned to the pool.
+ • Provision surfaces an error back to the workflow.
+
+If all instances pass validation, the worker transitions their DynamoDB records from created → running, clears the fleet context, and hands control back to the workflow dispatcher—jobs can now start immediately.
+
+### Fleet Validation & Interactions (deprecated section)
 
 Once instances have been created, they immediately execute the user data script that the controlplane configures for the instance. To see the details of this user data, see the [instances page](../todo.md).
 

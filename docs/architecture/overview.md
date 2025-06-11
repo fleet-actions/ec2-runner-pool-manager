@@ -243,18 +243,16 @@ After successful claiming, the instance detects the new `runId` and registers it
 !!! note "Sequence Diagram"
     ```mermaid
     sequenceDiagram
-        participant SQS_Pool as "Resource Pool"
         participant Controlplane
         participant DynamoDB as "State Store"
         participant Instance
         participant Github
 
-        Controlplane-->SQS_Pool: fetch any idle instances
+        Note over Controlplane: fetch any idle instance from pool
         Controlplane->>Controlplane: fetched idle instance deemed valid
         
-        Controlplane->>+DynamoDB: claim instance (state: idle->claimed, runId: new_run_id)
-        DynamoDB-->>-Controlplane: claim succeeds
-        Note over Controlplane, Instance: instance detects new_run_id via db
+        Controlplane->>DynamoDB: claim instance (state: idle->claimed, runId: new_run_id)
+        Note over Controlplane, Instance: if claim suceeds, instance detects new_run_id via db
         Controlplane->>+DynamoDB: look for registration signal
         
         Instance->>Github: register with new_run_id
@@ -262,8 +260,8 @@ After successful claiming, the instance detects the new `runId` and registers it
         Instance-->Github: pickup any ci jobs
         DynamoDB-->>-Controlplane: registration signal found ✅
         
-
         Controlplane->>DynamoDB: transition (state: claimed->running)
+        Note over Controlplane: completes if compute is fulfilled
     ```
 
 This reuse cycle repeats smoothly as long as instances remain healthy, continue matching workflow requirements, and remain within configured operational lifetimes.
@@ -335,7 +333,7 @@ sequenceDiagram
     Instance->>Instance: determine self as expired
     Instance->>AWS: TerminateInstances(instance_id)
     AWS->>Instance: AWS terminates instance
-    Note over Instance: Shuts down
+    Note over Instance: shutdown
 ```
 
 These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy, efficient, and cost-effective by automatically cleaning up unused or problematic instances.

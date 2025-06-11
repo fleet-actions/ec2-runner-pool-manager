@@ -140,7 +140,6 @@ describe('FleetValidation', () => {
       })
 
       // POLLLING ERRORS
-      // Change the existing ws test to be more explicit
       it('fails if ws check returns false and skips heartbeat check', async () => {
         mockWorkerSignalOps.pollOnSignal.mockResolvedValue({
           state: false,

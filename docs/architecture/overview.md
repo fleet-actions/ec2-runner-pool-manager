@@ -21,6 +21,21 @@ Let's clearly expand the foundational concepts briefly introduced in [index.md](
 
 The controlplane operates in three distinct modes:
 
+```mermaid
+graph TD
+  subgraph Controlplane Modes
+      A[Workflow Starts] --> B(Provision Mode);
+      B --> C[Instance Ready for CI];
+
+      D[Workflow Completes] --> E(Release Mode);
+      E --> F[Instance Returned to Pool];
+
+      G[Manual or Scheduled Interval] --> H(Refresh Mode);
+      H --> I[Initialization/Maintenance];
+  end
+
+```
+
 - **Provision**: Acquires EC2 resources either by claiming from the resource pool or provisioning new instances.
 - **Release**: Returns instances to the resource pool after workflows complete, resetting instance state.
 - **Refresh**: Periodically validates instance health and lifecycle thresholds, initiating termination of unhealthy or expired instances.
@@ -52,23 +67,19 @@ These states allow the controlplane to track and manage instances seamlessly.
 
 **Detailed State Transition Diagram:**
 
-```bash
-(created) ───▶ (running) ──▶ (idle) ────▶ (claimed)
-    │              │           │              │
-    ▼              ▼           ▼              ▼
-                   (terminated) 
-```
+![state-transition](../assets/state-transition.png)
 
-- created → running: Initialization completes successfully.
-- running → idle: CI job completes, instance returns to the pool.
-- idle → claimed: Instance is selected by a new workflow.
-- all → terminated: Triggered by threshold expiration or health failures.
+- created->running: Initialization completes successfully.
+- running->idle: CI job completes, instance returns to the pool.
+- idle->claimed: Instance is selected by a new workflow.
+- claimed->idle: Placed back to pool if handled failures encountered.
+- all->terminated: Triggered by threshold expiration or health failures.
 
-This precise state management underpins the controlplane’s ability to reuse runners effectively and terminate them automatically when no longer viable.
+This state management underpins the controlplane’s ability to reuse runners effectively and terminate them automatically when no longer viable.
 
 ## Lifecycle of an Instance
 
-To gain a better understanding with how the controlplane manages runner, we’ll walk step-by-step through the journey of a single instance—from creation, through initialization, running jobs, reuse, and eventually its termination. Along the way, we’ll clearly introduce the critical concepts of indirect signaling, workflow identifiers (runId), runner labels, and thresholds.
+To gain a better understanding with how the controlplane manages runner, we’ll walk step-by-step through the journey of a single instance—from creation. Through initialization, running jobs, reuse, and termination. Along the way, we’ll clearly introduce the critical concepts of indirect signaling, workflow identifiers (runId), runner labels, and thresholds.
 
 ### Creation of an Instance
 
@@ -89,8 +100,8 @@ As soon as an instance is created, it enters the created state in our central da
 }
 ```
 
-!!! note "What is `runId` for?"
-    `runId` uniquely associates this instance with the workflow, ensuring it only runs the intended jobs.
+!!! note "What is `runId` and what is it for?"
+    `runId` is the [id that Github uniquely assigns to the workflow](https://github.com/orgs/community/discussions/26965) and is part of the Github Context. We use this to uniquely associate this instance with the workflow, ensuring it only runs the intended jobs.
 
 !!! note "What is `threshold` for?"
     `threshold` here defines a timeout for how long this instance can remain in the state; we’ll explain this fully in the Expiration section below.
@@ -101,10 +112,10 @@ After creation, the instance begins initializing itself. Since the controlplane 
 
 The instance performs two essential initialization steps:
 
-- Pre-runner Script: Runs environment setup tasks on the instance.
-- Runner Registration: The instance registers itself as a GitHub Actions runner using the workflow’s unique runId.
+- Pre-runner Script: Runs the user-defined script on the instance.
+- Runner Registration: The instance registers itself as a GitHub Actions runner using the `runId`.
 
-Once both steps complete successfully, the instance signals readiness (via a separate data structure), and the controlplane updates the state to running in the database:
+Once both steps complete successfully, the instance signals readiness, and the controlplane updates the state to running in the database:
 
 ```json
 // state created->running, new threshold assigned
@@ -116,8 +127,24 @@ Once both steps complete successfully, the instance signals readiness (via a sep
 }
 ```
 
-!!! note "Indirect Signaling"
-    Due to network and security constraints - the controlplane can’t communicate directly with the instances. They rely instead on regularly reading and writing their state in a shared central database (DynamoDB).
+!!! note "Indirect Signaling - a sneek peek"
+    Due to network and security constraints - the controlplane can’t communicate directly with the instances. They rely instead on regularly reading and writing their state in a shared central database (DynamoDB). Below is a lower level view of a successful registration.
+    ```mermaid
+    sequenceDiagram
+        participant Controlplane
+        participant DynamoDB
+        participant Instance
+
+        Controlplane->>Controlplane: Instantiate with AWS
+        Instance->>Instance: Initialize (pre-runners-script & registration to GH)
+        Controlplane->>DynamoDB: Register (state: created) 
+        Controlplane->>+DynamoDB: Periodically Read/Monitor State
+        Instance->>DynamoDB: Signal Readiness
+        DynamoDB->>-Controlplane: Found Signal
+
+        Controlplane->>DynamoDB: Change state (created->running)
+        Controlplane->>Controlplane: Finish Provision (allow CI Jobs to run) 
+    ```
 
 ### Running CI Jobs
 
@@ -131,15 +158,14 @@ Since the instance registered itself with exactly this runId, it guarantees that
 
 ### Releasing an Instance Back to the Resource Pool
 
-When all CI jobs finish running on a runner instance, the workflow explicitly signals completion, prompting the controlplane’s release component to return the runner to the resource pool.
+When all CI jobs finish running on a runner instance, the workflow executes `release`. This prompts the controlplane’s release component perform the tasks to safely place the runner to the resource pool.
 
 The release component ensures the instance is safely reset and ready for future workflows. Behind the scenes, the controlplane and the runner instance coordinate via the shared state store to facilitate a clean transition. This coordination includes clearing workflow-specific identifiers, safely deregistering from GitHub Actions, and confirming readiness for reuse.
 
-Here’s how the instance state updates in the database to reflect successful release:
+At a lower level, the responsibilities of the controlplane and instance are as follows:
 
-!!! note "Who does what?"
-    - **Controlplane**: Updates instance state, monitors signaling, places instance back into pool.
-    - **Instance**: Detects state change, deregisters from GitHub Actions, signals completion.
+- **Controlplane**: Updates instance state, monitors signaling, places instance back into pool.
+- **Instance**: Detects state change, deregisters from GitHub Actions, signals completion.
 
 Here’s how this transition appears in the database:
 
@@ -155,7 +181,7 @@ Here’s how this transition appears in the database:
 
 The instance is now in the resource pool and ready for another workflow.
 
-??? note "A peek at the resource pool :mag:"
+??? note "Distilled view of the resource pool :mag:"
     ```json
     {
       "instanceId": "i-123456",
@@ -163,15 +189,14 @@ The instance is now in the resource pool and ready for another workflow.
       "instanceType": "c6i.large",
     }
     ```
-    Simplified view of a resource pool entry. See below at how this is used.
+    This distilled message is placed as a resource pool message in SQS. See below at how this is used.
 
 ### Reusing Instances (Selection & Claiming)
 
-Reusing Instances (Selection & Claiming)
-
 With the released instance now available in the resource pool, let’s imagine another workflow triggers, requesting compute resources. The controlplane first consults the resource pool to check if existing idle resources match the workflow’s requirements.
 
-The controlplane evaluates key attributes from resource pool messages, specifically:
+
+The controlplane evaluates key attributes from resource pool messages, some of these include:
 
 - usageClass (spot or on-demand) to align with cost or availability needs.
 - instanceType to satisfy performance constraints.
@@ -195,7 +220,7 @@ Matching against our resource pool entry:
 }
 ```
 
-Since our previously released instance (i-123456) matches these requirements exactly, the controlplane attempts to claim it.
+Since our previously released instance `i-123456` matches these requirements exactly, the controlplane attempts to claim `i-12346`.
 
 If the claim is successful (no other workflow has claimed it first):
 
@@ -209,10 +234,33 @@ If the claim is successful (no other workflow has claimed it first):
 }
 ```
 
-!!! note "Racing against other Workflows"
+!!! note "Racing against other Workflows :run:"
     Claims might fail if a race condition occurs (another workflow claiming simultaneously). In such cases, the controlplane either selects another idle instance or provisions a new one.
 
 After successful claiming, the instance detects the state change and registers itself with GitHub Actions using the new workflow’s runId. Shortly thereafter, the controlplane transitions the instance from `claimed` to `running`, indicating it is now ready to execute CI jobs.
+
+!!! note "Sequence Diagram"
+    ```mermaid
+    sequenceDiagram
+        participant Controlplane
+        participant SQS_Pool as "Resource Pool"
+        participant DynamoDB as "State Store"
+        participant Instance
+
+        Controlplane->>+SQS_Pool: Find Idle Instance (match criteria)
+        SQS_Pool-->>-Controlplane: idle_instance_id (Matched & Available)
+        
+        Controlplane->>+DynamoDB: CLAIM: idle_instance_id (state: claimed, runId: new_run_id)
+        DynamoDB-->>-Controlplane: Claim OK for idle_instance_id
+        
+        Note over Controlplane, Instance: Instance detects new_run_id via DB
+        
+        Instance->>Instance: Re-register with new_run_id
+        
+        Controlplane->>+DynamoDB: SET STATE: idle_instance_id state running
+        DynamoDB-->>-Controlplane: State 'running' set
+    ```
+
 
 This reuse cycle repeats smoothly as long as instances remain healthy, continue matching workflow requirements, and remain within configured operational lifetimes.
 
@@ -229,7 +277,7 @@ This reuse cycle repeats smoothly as long as instances remain healthy, continue 
 
 ### Expiration, Thresholds, and Termination
 
-Instances cannot run indefinitely. To prevent instances from getting stuck or running longer than intended, each state (created, running, idle) carries a threshold—a timestamp indicating how long an instance may safely remain in its current state.
+If, for some reason, instances from getting stuck or running longer than intended, each state (created, running, idle) carries a threshold - this is a timestamp indicating how long an instance may safely remain in its current state.
 
 If the instance surpasses this timestamp, it’s considered expired:
 

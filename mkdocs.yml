@@ -10,8 +10,8 @@ theme:
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
-      accent: orange
-      primary: deep orange
+      # accent: orange
+      # primary: deep orange
 
       toggle:
         icon: material/brightness-4

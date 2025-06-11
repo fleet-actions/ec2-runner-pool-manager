@@ -1,18 +1,6 @@
 # Provision
 
-Provision guarantees that each GitHub Actions workflow receives exactly the compute resources it needs—either by efficiently reusing existing idle instances or by quickly creating new EC2 runners on-demand.
-
-## Overview and Goals
-
-Provision is one of the core operational modes of the controlplane, specifically designed to ensure GitHub Actions workflows always have suitable EC2 instances ready to execute CI jobs promptly and reliably.
-
-The primary objectives of Provision are:
-
-- Resource Efficiency: Maximize the reuse of existing idle runners, reducing costs and startup latency.
-- Scalability: Provision new instances from AWS if no suitable idle runners are available, ensuring workflows never wait unnecessarily.
-- Isolation: Ensure safe, isolated assignment of resources to workflows, preventing conflicts or resource contention.
-
-Provision achieves these goals through two sub-components:
+Provision is one of the core operational modes of the controlplane, specifically designed to ensure GitHub Actions workflows always have suitable EC2 instances ready to execute CI jobs promptly and reliably. Provision achieves these goals through two sub-components:
 
  1. Selection: Prioritizes reuse by selecting suitable idle runners from the resource pool.
  2. Creation: Provisioning new EC2 resources on-demand, using AWS fleet management.
@@ -29,14 +17,14 @@ It does this by rapidly scanning the **Resource Pool**, filtering messages that 
 
 **High‑level flow**
 
-1. **Pickup Manager** dequeues messages from the SQS‑backed Resource Pool and filters by static attributes (`usageClass`, `instanceType`, CPU/Memory).
+1. **Pickup Manager** dequeues messages from the SQS‑backed **Resource Pool** and filters by static attributes (`usageClass`, `instanceType`, etc.).
 2. Invalid messages are generally requeued, valid messages are handed to **Claim Workers** (spawned in parallel, one per requested runner).
 3. Each Claim Worker performs an atomic *idle->claimed* transition in DynamoDB.  
     - On success: runs final health + registration checks and hands the instance to *Post-Provision*.  
     - On failure: instance is released/requeued and the worker asks the Pickup Manager for another candidate.
-4. If all workers report **pool exhausted**, control passes to the **Creation** sub‑component to launch fresh instances.
+4. If all workers report **pool exhausted** before compute is fulfilled, **Creation** sub‑component,is the fallback to launch fresh instances.
 
-With that context, let’s dive into the concrete interfaces used by the Resource Pool, Pickup Manager and Claim Workers.
+With that context, we'll cover the interfaces used by the Resource Pool, Pickup Manager and Claim Workers.
 
 See linked pages:
 
@@ -47,7 +35,7 @@ See linked pages:
 
 ### Overview of Creation
 
-If the resource pool simply can’t meet the workflow’s needs - provision falls back to Creation. Here's a high‑level flow
+If the resource pool simply can’t meet the workflow’s needs - provision falls back to **Creation**. Here's a high‑level flow
 
 1. **Determine unmet capacity**  
    Provision calculates how many additional runners are still required after Selection has finished, based on the workflow’s `instance-count` and resource specs.

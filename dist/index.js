@@ -41634,7 +41634,6 @@ class WorkerSignalOperations extends BasicValueOperations {
     constructor(client) {
         super(WorkerSignalOperations.ENTITY_TYPE, null, client);
     }
-    // ... existing code ...
     // Checks if a single instance has completed with the expected signal
     async singleCompletedOnSignal(id, runId, signal) {
         coreExports.debug(`Checking signal for instance ${id} with runId: ${runId}, signal: ${signal}`);

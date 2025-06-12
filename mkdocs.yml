@@ -58,7 +58,7 @@ nav:
       - Provision:
           - Overview: architecture/provision/provision.md
           - Selection:
-              - Resource Pool and Pickup Manager: architecture/provision/selection/resource-pool-and-pickup-manager.md
+              - Pickup Manager: architecture/provision/selection/pickup-manager.md
               - Claim Workers: architecture/provision/selection/claim-workers.md
           - Creation:
               - Fleet Creation: architecture/provision/creation/fleet-creation.md
@@ -67,7 +67,7 @@ nav:
       - Release: architecture/release.md
       - Refresh: architecture/refresh.md
       - Others:
-          - Instance Initialization: architecture/other/instance-initialization.md
+          - Instance Bootstrap: architecture/other/instance-initialization.md
           - Resource Pool: architecture/other/resource-pool.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md

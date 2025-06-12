@@ -372,5 +372,5 @@ With this in mind, we are in a good place to look at each components of the cont
 
 To see other components that supplement the controlplane, see below:
 
-- [Resource Pool](../todo.md): Covers how SQS backs the resource pool and how the messages within it are structured.
-- [Instances](../todo.md): Covers how the instances know when to safely register and deregister from Github and other responsibilities like the heartbeat probe and facilitating safe self-termination.
+- [Resource Pool](./resource-pool.md): Covers how SQS backs the resource pool and how the messages within it are structured.
+- [Instance Bootstrap](./instance-bootstrap.md): Covers how the instances know when to safely register and deregister from Github and other responsibilities like the heartbeat probe and facilitating safe self-termination.

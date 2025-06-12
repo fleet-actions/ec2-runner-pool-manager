@@ -28,7 +28,7 @@ With that context, we'll cover the interfaces used by the Resource Pool, Pickup 
 
 See linked pages:
 
-- [Resource Pool and Pickup Manager](./selection/resource-pool-and-pickup-manager.md)
+- [Pickup Manager](./selection/pickup-manager.md)
 - [Claim Workers](./selection/claim-workers.md)
 
 ## Creation (Provisioning New Instances)

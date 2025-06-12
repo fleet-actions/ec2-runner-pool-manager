@@ -11,6 +11,42 @@ A Pickup Message from SQS (representing an idle instance) is processed by a Clai
 - **Atomic State Transitions**: Each worker performs a conditional update in DynamoDB (from `idle` to `claimed`) to guarantee exclusive ownership of an instance for a specific workflow.
 - **Liveness & Health Verification**: Before an instance is considered fully claimed and ready for the workflow, the worker validates its heartbeat and registration status by observing signals written by the instance itself into DynamoDB.
 
+```mermaid
+sequenceDiagram
+    participant CW as "Claim Worker"
+    participant PM as "Pickup Manager"
+    participant DDB as "DynamoDB"
+    participant InstanceEC2 as "EC2 Instance (via User Data)"
+    participant GitHub
+
+    Note over CW: Receives candidate_instance_id from Pickup Manager
+    PM-->>CW: candidate_instance_id
+
+    CW->>+DDB: Attempt Atomic Claim: Update instance_id (state: idle->claimed, set run_id, set claim_threshold)
+    DDB-->>-CW: Claim Successful
+
+    Note over InstanceEC2, DDB: Instance polls DDB, detects new run_id
+
+    InstanceEC2->>+GitHub: Register with run_id
+    GitHub-->>-InstanceEC2: Registration OK
+
+    InstanceEC2->>+DDB: Write Worker Signal (UD_REG_OK, run_id)
+    DDB-->>-InstanceEC2: Signal Written
+
+    InstanceEC2->>+DDB: Write Heartbeat (updatedAt)
+    DDB-->>-InstanceEC2: Heartbeat Written
+
+    CW->>+DDB: Poll for Heartbeat (instance_id)
+    DDB-->>-CW: Heartbeat OK (recent)
+
+    CW->>+DDB: Poll for Registration Signal (instance_id, expected run_id, UD_REG_OK)
+    DDB-->>-CW: Signal OK
+
+    Note over CW: Instance claimed, healthy, and registered.
+    CW-->>Orchestrator: Return Success (instance_id, instance_details) 
+    %% Orchestrator would then transition DDB state: claimed->running
+```
+
 ## Instance Claiming Process
 
 1. **Receive Candidate Instance**: A Claim Worker receives a candidate instance message from the Pickup Manager (which reads from the SQS resource pool). This message describes an idle instance.

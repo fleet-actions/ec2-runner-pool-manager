@@ -53,17 +53,17 @@ EC2 Instances—also called runners—are dynamically managed resources executin
 
 Each instance has a clearly defined lifecycle managed through distinct states stored in DynamoDB:
 
-| State        | Precise Technical Definition                                           |
-|--------------|------------------------------------------------------------------------|
+| State | Technical Definition        |
+|--------------|----------------------|
 | **created**  | Instance created; initialization pending (waiting on runner registration & scripts). |
-| **running**  | Runner initialized and actively accepting CI jobs.                     |
-| **idle**     | Instance healthy and available in the resource pool for reuse.         |
+| **running**  | Runner initialized and actively accepting CI jobs.|
+| **idle**     | Instance healthy and available in the resource pool for reuse.  |
 | **claimed**  | Instance reserved by a workflow, undergoing final validation checks.   |
 | **terminated**| Instance terminated following expiration, unhealthy status, or explicit shutdown.|
 
 These states allow the controlplane to track and manage instances seamlessly.
 
-**Detailed State Transition Diagram:**
+**Detailed State Transition Diagram**
 
 ![state-transition](../assets/state-transition.png)
 
@@ -356,26 +356,25 @@ For redundancy, the instance itself observes its own lifetime. If it sees that i
 
         Note over Instance: Background Process in Instance 
         Instance-->DynamoDB: periodically fetch own threshold ♻️
-        Note over Instance: compares threshold against internal time
+        Note over Instance: Compares threshold against local time
         Instance->>Instance: determine self as expired
         Instance->>AWS: TerminateInstances(instance_id)
         AWS->>Instance: AWS terminates instance
         Note over Instance: shutdown
     ```
 
-These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy, efficient, and cost-effective by automatically cleaning up unused or problematic instances.
+These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy and efficient by automatically cleaning up unused/problematic instances.
 
 <!-- ☀️ -->
 
 ## Technical Deep Dives
 
-With this in mind, we are in a good place to look at each components of the controlplane in more detail. This following section is by no means a exhaustive account of every mechanism but rather goes in to detail the challenges and solutions used - follow the links below:
+For a detailed exploration of individual components, their challenges, and solutions, see:
 
-- [Provision](./provision/provision.md): Look more closely in to reuse and creation, including selection logic, resource matching, and AWS API interactions.
-- [Release](./release.md): Look more closely in to safe instance deregistration and placement on to the resource pool.
-- [Refresh](./refresh.md): Check out initialization and maintenance of the controlplane and how periodic checks ensures no long running instances with safe termination.
+- [Provision](./provision/provision.md): Instance reuse/creation, selection logic, resource matching, and AWS API interactions.
+- [Release](./release.md): Safe instance deregistration and resource pool placement.
+- [Refresh](./refresh.md): Controlplane initialization, maintenance, and periodic checks for safe termination of long-running instances.
+- [Resource Pool](./resource-pool.md): SQS-backed resource pool, message structure, and producer/consumer roles.
+- [Instance Initialization](./instance-initialization.md): Instance startup, GitHub registration/deregistration loop, heartbeats, and safe self-termination.
 
-To see other components that supplement the controlplane, see below:
-
-- [Resource Pool](./resource-pool.md): Covers how SQS backs the resource pool, message structure and primary producers and consumers.
-- [Instance Bootstrap](./instance-bootstrap.md): How instances start up, know when to safely register and deregister from Github. And look in to the heartbeat proble and other responsibilities and safe self-termination.
+<!-- ☀️ -->

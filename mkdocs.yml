@@ -66,6 +66,9 @@ nav:
           - Post Provision: architecture/provision/post-provision.md
       - Release: architecture/release.md
       - Refresh: architecture/refresh.md
+      - Others:
+          - Instance Initialization: architecture/other/instance-initialization.md
+          - Resource Pool: architecture/other/resource-pool.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md
       - Advanced Scenarios: examples/advanced-scenarios.md

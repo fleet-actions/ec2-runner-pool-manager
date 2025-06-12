@@ -193,7 +193,7 @@ The instance is now in the resource pool and ready for another workflow.
     ```
     This distilled message is placed as a resource pool message in SQS. See below at how this is used.
 
-!!! note "Sequence Diagram for Instance Deregistration and Resource Pool Placement"
+??? note "Sequence Diagram for Instance Deregistration and Resource Pool Placement"
     ```mermaid
     sequenceDiagram
         participant Controlplane as "Release (Controlplane)"
@@ -278,12 +278,12 @@ After successful claiming, the instance detects the new `runId` and registers it
         Controlplane->>Controlplane: Instance deemed valid
         
         Controlplane->>DynamoDB: claim instance (state: idle->claimed, runId: new_run_id)
-        Note over Controlplane, Instance: If claim suceeds, instance detects new_run_id via db
+        Note over Controlplane, Instance: If claim suceeds then new run_id is given ⚡️ instance detects new_run_id via db
         Controlplane->>+DynamoDB: Monitor for registration signal
         
         Instance->>Github: register with new_run_id
         Instance->>DynamoDB: send registration signal ✅
-        Instance-->Github: pickup any ci jobs
+        Instance-->Github: pickup any ci jobs ♻️
         DynamoDB-->>-Controlplane: registration signal found ✅
         
         Controlplane->>DynamoDB: State Transition (state: claimed->running)
@@ -352,7 +352,7 @@ For redundancy, the instance itself observes its own lifetime. If it sees that i
         participant AWS
 
         Note over Instance: Background Process in Instance 
-        Instance-->DynamoDB: periodically fetch own threshold
+        Instance-->DynamoDB: periodically fetch own threshold ♻️
         Note over Instance: compares threshold against internal time
         Instance->>Instance: determine self as expired
         Instance->>AWS: TerminateInstances(instance_id)

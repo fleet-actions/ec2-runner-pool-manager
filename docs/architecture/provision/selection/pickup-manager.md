@@ -1,87 +1,55 @@
 # Pickup Manager
 
-The Pickup Manager (PM) is an in-process component within the control-plane's Provision mode. It is instantiated per workflow selection attempt and is responsible for efficiently retrieving and filtering idle instance messages from the SQS-based [Resource Pool](../../resource-pool.md) to find suitable warm runners for the current workflow's requirements.
+The Pickup Manager (PM) is an in-process component instantiated per workflow selection attempt. It is responsible for retrieving and filtering idle instance messages from the SQS-based [Resource Pool](../../resource-pool.md) to find suitable warm runners for the requestors ([Claim Workers](./claim-workers.md)) to fulfill the current workflow's requirements.
 
 The Pickup Manager's core responsibilities are:
 
 1. **Dequeueing Candidate Messages**: Retrieving messages from the relevant SQS resource pool queue.
 2. **Filtering**: Evaluating the dequeued message (whose format is detailed in the [Resource Pool documentation](../../resource-pool.md)) against the requesting workflow’s specific compute requirements (e.g., instance type, usage class, CPU, memory).
 3. **Dispatching or Re-queuing**:
-    * If a message represents a suitable instance, it's passed to a Claim Worker for an attempt to claim the instance.
-    * If unsuitable for the current request, the message is returned to the SQS queue for other workflows.
-    * If the message represents an invalid or malformed entry, it may be discarded.
+    * ✅ If a message represents a suitable instance, it's passed to a Claim Worker for an attempt to claim the instance.
+    * ♻️ If unsuitable for the current request, the message is returned to the SQS queue for other workflows.
+    * ❌ If the message represents an invalid or malformed entry, it may be discarded.
 
-!!! note "[DRAFT] Happy Path Sequence Diagram"
-    ```mermaid
-    sequenceDiagram
-        participant Orchestrator as "Provision Orchestrator"
-        participant PM as "Pickup Manager"
-        participant SQS_Pool as "SQS Resource Pool"
 
-        Orchestrator->>+PM: Attempt Pickup (workflow_requirements)
-        PM->>PM: Initialize
-        
-        %% Start of the conceptual "loop" for a single successful attempt
-        PM->>+SQS_Pool: Request Message (for target_resource_class)
-        SQS_Pool-->>-PM: instance_message_data (with instance_id)
-        
-        PM->>+SQS_Pool: Delete Message (instance_message_data.receipt_handle)
-        SQS_Pool-->>-PM: Delete Confirmed
-                
-        PM->>PM: Check Pickup Frequency (for instance_id)
-        %% Happy Path: Frequency is OK
-                
-        PM->>PM: Classify Message (instance_message_data.payload vs workflow_requirements)
-        %% Happy Path: Message is OK (Suitable)
-                    
-        PM-->>-Orchestrator: Return InstanceMessage (instance_message_data.payload)
-        %% End of the conceptual "loop" for a single successful attempt
-        
-    ```
-
-!!! note "[DRAFT] Un Happy Path Sequence Diagram"
-    ```mermaid
-    sequenceDiagram
-        participant Orchestrator as "Provision Orchestrator"
-        participant PM as "Pickup Manager"
-        participant SQS_Pool as "SQS Resource Pool"
-
-        Orchestrator->>+PM: Attempt Pickup (workflow_requirements)
-        PM->>PM: Initialize (e.g., reset internal frequency counts)
-        
-        %% Simulating a few attempts leading to local exhaustion
-        %% Attempt 1 (or N) - Message received, frequency incremented, but eventually tolerance is hit
-        PM->>+SQS_Pool: Request Message (for target_resource_class)
-        SQS_Pool-->>-PM: instance_message_data_X (with instance_id_A)
-        
-        PM->>+SQS_Pool: Delete Message (instance_message_data_X.receipt_handle)
-        SQS_Pool-->>-PM: Delete Confirmed
-                
-        PM->>PM: Check Pickup Frequency (for instance_id_A)
-        %% Assume frequency for instance_id_A is now at tolerance limit
-        Note over PM: Frequency for instance_id_A has reached tolerance!
-
-        PM->>PM: Classify Message (instance_message_data_X.payload vs workflow_requirements)
-        %% Even if message itself is OK or Mismatch, frequency takes precedence for local exhaustion
-
-        PM->>+SQS_Pool: Re-queue Message (instance_message_data_X.payload)
-        SQS_Pool-->>-PM: Re-queue Confirmed
-                    
-        PM-->>-Orchestrator: Return Null (Locally Exhausted for this workflow)
-    ```
 
 ## 1. Interfacing with SQS: The Pickup Lifecycle
 
 The Pickup Manager interacts with SQS in a tight loop designed for low latency and efficient message handling. This process involves several conceptual SQS operations:
 
-| Step | Action by Pickup Manager                      | Conceptual SQS Operation                                     | Purpose & Notes                                                                                                                                                                                             |
-| :--- | :-------------------------------------------- | :----------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Request a message from the specific SQS queue. | `ReceiveMessage`                                             | A short poll is typically used to minimize latency in discovering available idle runners.                                                                                                                   |
-| 2    | Delete the message from SQS.                   | `DeleteMessage`                                              | The message is deleted from the SQS queue **immediately after successful receipt and basic validation (e.g., presence of a body and receipt handle)**, but *before* full content parsing or filtering. This minimizes contention for the same message by multiple concurrent Provision processes or workers. The message effectively lives only in the Pickup Manager's memory for the filtering stage. |
-| 3    | Filter the message content in-memory.         | N/A (Local operation)                                        | The deserialized message is checked against the workflow’s provision inputs (e.g., `allowedInstanceTypes`, `usageClass`, required CPU/memory). No network round-trips occur during this filtering. |
-| 4a   | **Pass-On (Match Found)**                     | N/A (Dispatch to Claim Worker)                               | If the message's attributes match the workflow's requirements, the `InstanceMessage` object is handed to a waiting Claim Worker. The Claim Worker will then attempt to atomically transition the instance's state in DynamoDB from `idle` to `claimed`. |
-| 4b   | **Re-queue (Filter Mismatch)**                | `SendMessage`                                                | If the message does not match the *current* workflow's constraints (e.g., wrong instance type for this job, but potentially suitable for another), it is sent back to the same SQS queue. A short `DelaySeconds` can be applied to this `SendMessage` operation (an SQS feature) to prevent the Pickup Manager from immediately re-picking and re-evaluating the same unsuitable message in a tight loop for the *same* workflow request. |
-| 4c   | **Discard (Invalid/Malformed Message)**       | N/A (Already deleted)                                        | If the message is found to be fundamentally invalid during parsing or pre-filter checks (e.g., wrong resource class for the queue it was in, insufficient CPU/memory compared to its own class definition), it is discarded. Since it was already deleted from SQS in Step 2, no further action is needed on the queue. |
+| Action by Pickup Manager | Conceptual SQS Operation | Purpose & Notes|
+| :--| :-| :--|
+| 1 Request a message from the resource class-specific SQS queue. | `ReceiveMessage`| A short poll used for discovering available idle runners. |
+| 2 Delete the message from SQS. | `DeleteMessage` | As soon as received, delete the message from the queue to minimize contention by multiple concurrent Provision processes or workers |
+| 3 Filter the message content in-memory.| N/A (Local operation) | The contents of message checked against the workflow’s provision inputs (e.g., `allowedInstanceTypes`, `usageClass`, etc.) |
+| 4a :white_check_mark: **Pass-On (Match Found)**| N/A (Dispatch to Claim Worker) | If check is OK - PM hands to requesting [Claim Worker](./claim-workers.md) |
+| 4b :recycle: **Re-queue (Filter Mismatch)** | `SendMessage`| If mismatching *current* workflow's compute constraints - is sent back to the same SQS queue. A short `DelaySeconds` can be applied to this `SendMessage` to mitigate picking up the same message again |
+| 4c :x: **Discard (Invalid/Malformed Message)** | N/A (Already deleted) | Something is wrong with the message (ie. parsing, unexpected attributes), it is discarded. |
+
+!!! note "Sequence Diagram: Valid Message"
+    ```mermaid
+    sequenceDiagram
+        participant ClaimWorker
+        participant PM as "Pickup Manager"
+        participant SQS_Pool as "Resource Pool (SQS)"
+
+        Note over PM: Intitialized with workflow's compute requirements <br>(resource class, usage class, etc.)
+        Note over PM, SQS_Pool: Reference a specific queue from pool. <br> Dedicated queue per resource class
+        ClaimWorker->>+PM: Request Instance
+        
+        %% Start of the conceptual "loop" for a single successful attempt
+        PM->>+SQS_Pool: Dequeue Message
+        SQS_Pool-->>-PM: instance_message_data (with instance_id)
+        
+        PM->>PM: Check Pickup Frequency (for instance_id)
+        %% Happy Path: Frequency is OK
+                
+        PM->>PM: Compare instance_message_data.payload vs compute requirements
+        %% Happy Path: Message is OK (Suitable)
+                    
+        PM-->>-ClaimWorker: Return InstanceMessage <br> (instance_message_data.payload)
+        Note over ClaimWorker: Begin Claiming routine <br> Will re-request from pool if needed
+    ```
 
 ## 2. Message Handling and Classification Logic
 
@@ -111,10 +79,60 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
   * If an attempt to receive a message from the SQS queue indicates that the queue for the target `resourceClass` is currently empty.
   * **Outcome**: The Pickup Manager signals to the Provision orchestrator that no idle instances are available in this pool at this moment.
 
+!!! note "Sequence Diagram: Global Exhaustion Pool"
+    ```mermaid
+    sequenceDiagram
+        participant ClaimWorker
+        participant PM as "Pickup Manager"
+        participant SQS_Pool as "SQS Resource Pool"
+
+        ClaimWorker->>+PM: Attempt Pickup (workflow_requirements)
+    
+        PM->>+SQS_Pool: Request Message
+        SQS_Pool-->>-PM: No message 🤷
+                    
+        PM-->>-ClaimWorker: Return Null (Locally Exhausted for this workflow)
+    ```
+
 * **Locally Exhausted (Repetitive Unsuitable Messages)**:
   * To prevent an infinite loop where the Pickup Manager continuously picks, re-queues, and re-picks the same set of messages that are unsuitable for the *current* workflow's specific constraints, it maintains an internal frequency count for each unique `instanceId` it encounters during its current operational cycle.
   * If the same `instanceId` is dequeued more than a defined tolerance threshold (e.g., 5 times) within the context of a single pickup attempt for a workflow, the Pickup Manager considers the pool locally exhausted *for the current request*.
   * **Outcome**: The message that triggered this tolerance is still re-queued (so it remains available for other, potentially different, workflow requests). However, the Pickup Manager signals `null` for *this specific pickup attempt*, effectively suspending pickups for this workflow from this pool to avoid unproductive cycling on the same set of unsuitable instances.
+
+!!! note "Sequence Diagram: Local Exhaustion"
+    ```mermaid
+    sequenceDiagram
+        participant ClaimWorker
+        participant PM as "Pickup Manager"
+        participant SQS_Pool as "Resource Pool (SQS)"
+
+        ClaimWorker->>+PM: Request Instance
+        
+        Note over PM: Initialize frequency counter for instances
+
+        rect rgb(240, 240, 240)
+            Note right of PM: Loop: First instance pickup attempt
+            PM-->SQS_Pool: Dequeue instance_A Message
+            
+            Note over PM: Register instance_A (freq=1)<br>But unsuitable
+            PM-->SQS_Pool: Re-queue instance_A
+            
+        end
+
+        Note over PM: Additional cycles (truncated)
+
+        rect rgb(240, 240, 240)
+            Note right of PM: Loop: Later pickup attempts <br> imagine only instance_A is in Pool
+            PM-->SQS_Pool: Dequeue instance_A Message (again)
+            
+            Note over PM: Register instance_A (freq=n)<br>Still unsuitable
+            Note over PM: Frequency exceeds tolerance
+            PM-->SQS_Pool: Re-queue instance_A
+        end
+
+        PM-->>-ClaimWorker: Return Null (Locally Exhausted)
+        Note over ClaimWorker: Claim worker informs <br>controlplane of exhaustion
+    ```
 
 ---
 

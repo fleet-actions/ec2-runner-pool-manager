@@ -105,12 +105,11 @@ If the resource pool simply can’t meet the workflow’s needs - provision fall
          alt All signals received within timeout
             DynamoDB->>-Provision: Signals found within timeout
             Provision->>DynamoDB: Update state (created->running)
-            Note over Provision: Provisioning successful
+            Note over Provision: Provisioning successful ✅
          else Timeout or failure
             DynamoDB-->>Provision: Missing signals
             Provision->>AWS: Cleanup/terminate instances
-            Provision->>DynamoDB: Mark as failed
-            Note over Provision: Provisioning failed
+            Note over Provision: Provisioning failed ❌
          end
       ```
 
@@ -128,3 +127,5 @@ The **Post-Provision** component is the final gate before the workflow can start
 See linked page for more detail:
 
 - [Post Provision](./post-provision.md)
+
+<!-- ☀️ -->

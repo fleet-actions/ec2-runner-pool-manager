@@ -77,11 +77,11 @@ This state management underpins the controlplane’s ability to reuse runners ef
 
 ## Lifecycle of an Instance
 
-To gain a better understanding with how the controlplane manages runner, we’ll walk step-by-step through the journey of a single instance. From creation, initialization, running jobs, reuse, and termination. Along the way, we’ll clearly introduce the critical concepts of indirect signaling, workflow identifiers (runId), runner labels, and thresholds.
+To gain a better understanding with how the controlplane manages runner, we’ll walk step-by-step through the journey of a single instance. From creation, initialization, running jobs, reuse, and termination. Goal here is to introduce the critical mechanism bit by bit (ie. indirect signaling, workflow identifiers (runId), and thresholds)
 
 ### Creation of an Instance
 
-Imagine a workflow kicks off, requiring compute resources to execute CI jobs. Via `provision`, the controlplane first looks to reuse resources and checks the resource pool (implemented as an SQS queue) for idle instances.
+Imagine a workflow kicks off, requiring compute resources to execute CI jobs. Via `provision`, the controlplane first looks to reuse resources and checks the [resource pool](./resource-pool.md) (implemented as an SQS queue) for idle instances.
 
 - If a suitable instance is found, it gets immediately claimed.
 - If not, the controlplane creates a new EC2 instance.
@@ -99,16 +99,16 @@ As soon as an instance is created, it enters the created state in our central da
 ```
 
 !!! note "What is `runId` and what is it for?"
-    `runId` is the [id that Github uniquely assigns to the workflow](https://github.com/orgs/community/discussions/26965) and is part of the Github Context. We use this to uniquely associate this instance with the workflow, ensuring it only runs the intended jobs.
+    `runId` is the [id that Github uniquely assigns to the workflow](https://github.com/orgs/community/discussions/26965) and is part of the Github Context. We use this to uniquely associate this instance with the workflow's CI jobs, ensuring it only runs the intended jobs.
 
 !!! note "What is `threshold` for?"
-    `threshold` here defines a timeout for how long this instance can remain in the state; we’ll explain this fully in the Expiration section below.
+    `threshold` here defines a timeout for how long this instance can remain in a specific state; we’ll explain this fully in the Expiration section below.
 
 ### Initialization and Indirect Signaling
 
 After creation, the instance begins initializing itself. Since the controlplane and the instances cannot communicate directly, they use indirect signaling through a shared database.
 
-The instance performs two essential initialization steps:
+The instance performs two [essential initialization steps](./instance-bootstrap.md):
 
 - Pre-runner Script: Runs the user-defined script on the instance.
 - Runner Registration: The instance registers itself as a GitHub Actions runner using the `runId`.
@@ -125,7 +125,7 @@ Once both steps complete successfully, the instance signals readiness, and the c
 }
 ```
 
-??? note "Indirect Signalling: Knowing when the Instance is ready ready - a sneek peek"
+??? note "~A Closer Look :mag:~ Indirectly Signaling that the Instance is Ready :zap:"
     Due to network and security constraints - the controlplane can’t communicate directly with the instances. They rely instead on regularly reading and writing their state in a shared central database (DynamoDB). Below is a lower level view of a successful registration.
     ```mermaid
     sequenceDiagram
@@ -158,9 +158,11 @@ runs-on: ${{ github.run_id }}
 
 Since the instance registered itself with exactly this `runId`, it guarantees that these jobs run only on the correct, assigned instance. Jobs run smoothly without interference from other workflows.
 
+<!-- ☀️ -->
+
 ### Releasing an Instance Back to the Resource Pool
 
-When all CI jobs finish running on a runner instance, the workflow executes `release`. This prompts the controlplane’s release component perform the tasks to safely place the runner to the resource pool.
+When all CI jobs finish, the workflow executes `release`. This is tasked with safely placing the runner to the resource pool - enabling reuse.
 
 The release component ensures the instance is safely reset and ready for future workflows. Behind the scenes, the controlplane and the runner instance coordinate via the shared state store to facilitate a clean transition. This coordination includes clearing the `runId`, safely deregistering from GitHub Actions, and confirming readiness for reuse.
 
@@ -183,17 +185,18 @@ Here’s how this transition appears in the database:
 
 The instance is now in the resource pool and ready for another workflow.
 
-??? note "Distilled view of the resource pool :mag:"
+??? note "What is placed in the resource pool? :mag:"
     ```json
+    // Distilled version
     {
       "instanceId": "i-123456",
       "usageClass": "on-demand",
       "instanceType": "c6i.large",
     }
     ```
-    This distilled message is placed as a resource pool message in SQS. See below at how this is used.
+    Remember, the [resource pool](./resource-pool.md) is simply a collection of SQS queues. To see how this is used, see the next section.
 
-??? note "Sequence Diagram for Instance Deregistration and Resource Pool Placement"
+??? note "~A Closer Look :mag:~ How is the Instance Deregistered and placed in the Resource Pool? :zap:"
     ```mermaid
     sequenceDiagram
         participant Controlplane as "Release (Controlplane)"
@@ -256,17 +259,17 @@ If the claim is successful (no other workflow has claimed it first):
 {
   "instanceId": "i-123456",
   "state": "claimed",
-  "runId": "run-9999", 
+  "runId": "run-9999",
   "threshold": "2025-05-31T12:30:00Z"
 }
 ```
 
-!!! note "Racing against other Workflows :run:"
+!!! note "Racing against other Workflows :zap:"
     Claims might fail if a race condition occurs (another workflow claiming simultaneously). In such cases, the controlplane either selects another idle instance or provisions a new one.
 
-After successful claiming, the instance detects the new `runId` and registers itself with GitHub Actions using this new information. Shortly thereafter, the controlplane transitions the instance from `claimed` to `running`, indicating it is now ready to execute CI jobs.
+After successful claiming, the instance detects the new `runId` (ie. `run-9999`) and registers itself with GitHub with this label. Shortly thereafter, the controlplane transitions the instance from `claimed` to `running`, indicating it is now ready to execute CI jobs.
 
-??? note "Sequence Diagram for Claiming and indirect signalling of readiness"
+??? note "~A Closer Look :mag:~ How is an instance claimed and how do we know it's ready? :zap:"
     ```mermaid
     sequenceDiagram
         participant Controlplane as "Provision (Controlplane)"
@@ -329,7 +332,7 @@ When the refresh worker which executes via cron sees an expired instance, it iss
 
 For redundancy, the instance itself observes its own lifetime. If it sees that it has expired, it and issues a termination command directly to AWS to terminate itself.
 
-??? note "Sequence Diagram for Refresh Worker Terminating Expired Instance/s"
+??? note "~A Closer Look :mag:~ When does the Refresh Worker terminate expired instance/s :zap:"
     ```mermaid
     sequenceDiagram
         participant Refresh_Worker as "Refresh (Controlplane)"
@@ -344,7 +347,7 @@ For redundancy, the instance itself observes its own lifetime. If it sees that i
         Refresh_Worker->>+DynamoDB: Update instances to terminated (state: 'terminated', runId: '', threshold: '')
     ```
 
-??? note "Sequence Diagram for Instance Self-termination"
+??? note "~A Closer Look :mag:~ How does the Instance carry out self-termination? :zap:"
     ```mermaid
     sequenceDiagram
         participant Instance
@@ -362,15 +365,17 @@ For redundancy, the instance itself observes its own lifetime. If it sees that i
 
 These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy, efficient, and cost-effective by automatically cleaning up unused or problematic instances.
 
+<!-- ☀️ -->
+
 ## Technical Deep Dives
 
 With this in mind, we are in a good place to look at each components of the controlplane in more detail. This following section is by no means a exhaustive account of every mechanism but rather goes in to detail the challenges and solutions used - follow the links below:
 
-- [Provision](./provision/provision.md): In here, we will explore exactly how the controlplane decides whether to reuse an existing instance or create new EC2 resources, including selection logic, resource matching, and AWS API interactions.
-- [Release](./release.md): Understand precisely how the controlplane safely returns instances to the resource pool, including the details of runner deregistration, state cleanup, and readiness verification.
-- [Refresh](./refresh.md): Dive into initialization and maintenance and how periodic checks ensure instance health and proper expiration, detailing threshold enforcement, instance termination logic, and health monitoring mechanisms.
+- [Provision](./provision/provision.md): Look more closely in to reuse and creation, including selection logic, resource matching, and AWS API interactions.
+- [Release](./release.md): Look more closely in to safe instance deregistration and placement on to the resource pool.
+- [Refresh](./refresh.md): Check out initialization and maintenance of the controlplane and how periodic checks ensures no long running instances with safe termination.
 
 To see other components that supplement the controlplane, see below:
 
-- [Resource Pool](./resource-pool.md): Covers how SQS backs the resource pool and how the messages within it are structured.
-- [Instance Bootstrap](./instance-bootstrap.md): Covers how the instances know when to safely register and deregister from Github and other responsibilities like the heartbeat probe and facilitating safe self-termination.
+- [Resource Pool](./resource-pool.md): Covers how SQS backs the resource pool, message structure and primary producers and consumers.
+- [Instance Bootstrap](./instance-bootstrap.md): How instances start up, know when to safely register and deregister from Github. And look in to the heartbeat proble and other responsibilities and safe self-termination.

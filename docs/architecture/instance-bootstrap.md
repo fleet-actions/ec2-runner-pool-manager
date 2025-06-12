@@ -1,4 +1,4 @@
-# User‑Data Bootstrap Script
+# Instance Initialization
 
 Every newly‑launched EC2 runner instance executes a **bootstrap script** upon startup. This script is responsible for initializing the instance, preparing the operating system, managing the GitHub Actions runner lifecycle (including registration and deregistration for multiple jobs), maintaining health signals, and enabling safe reuse of the instance across different workflows.
 

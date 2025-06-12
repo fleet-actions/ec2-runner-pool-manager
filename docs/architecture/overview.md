@@ -125,17 +125,17 @@ Once both steps complete successfully, the instance signals readiness, and the c
 }
 ```
 
-!!! note "Indirect Signaling - a sneek peek"
+!!! note "Indirect Signalling: Knowing when the Instance is ready ready - a sneek peek"
     Due to network and security constraints - the controlplane can’t communicate directly with the instances. They rely instead on regularly reading and writing their state in a shared central database (DynamoDB). Below is a lower level view of a successful registration.
     ```mermaid
     sequenceDiagram
-        participant Controlplane
-        participant DynamoDB
+        participant Controlplane as "Provision (Controlplane)"
+        participant DynamoDB as "State Store"
         participant Instance
         participant Github
 
         Note over Controlplane, Instance: Controlplane creates instance with AWS
-        Controlplane->>DynamoDB: Immediate Register (state: created, runId)
+        Controlplane->>DynamoDB: Immediately register (state: created, runId)
         Instance->>Instance: Initialize (pre-runners-script)
         Instance->>Github: Register with runId
         Instance-->Github: Ready to pickup CI jobs with runId
@@ -243,25 +243,25 @@ After successful claiming, the instance detects the new `runId` and registers it
 !!! note "Sequence Diagram"
     ```mermaid
     sequenceDiagram
-        participant Controlplane
+        participant Controlplane as "Provision (Controlplane)"
         participant DynamoDB as "State Store"
         participant Instance
         participant Github
 
-        Note over Controlplane: fetch any idle instance from pool
-        Controlplane->>Controlplane: fetched idle instance deemed valid
+        Note over Controlplane: Fetch instance from pool
+        Controlplane->>Controlplane: Instance deemed valid
         
         Controlplane->>DynamoDB: claim instance (state: idle->claimed, runId: new_run_id)
-        Note over Controlplane, Instance: if claim suceeds, instance detects new_run_id via db
-        Controlplane->>+DynamoDB: look for registration signal
+        Note over Controlplane, Instance: If claim suceeds, instance detects new_run_id via db
+        Controlplane->>+DynamoDB: Monitor for registration signal
         
         Instance->>Github: register with new_run_id
         Instance->>DynamoDB: send registration signal ✅
         Instance-->Github: pickup any ci jobs
         DynamoDB-->>-Controlplane: registration signal found ✅
         
-        Controlplane->>DynamoDB: transition (state: claimed->running)
-        Note over Controlplane: completes if compute is fulfilled
+        Controlplane->>DynamoDB: State Transition (state: claimed->running)
+        Note over Controlplane: Completes if compute is fulfilled
     ```
 
 This reuse cycle repeats smoothly as long as instances remain healthy, continue matching workflow requirements, and remain within configured operational lifetimes.
@@ -303,38 +303,36 @@ When the refresh worker which executes via cron sees an expired instance, it iss
 
 For redundancy, the instance itself observes its own lifetime. If it sees that it has expired, it and issues a termination command directly to AWS to terminate itself.
 
-```mermaid
-sequenceDiagram
-    participant Cron_Trigger as "Cron (Scheduler)"
-    participant Refresh_Worker as "Refresh Worker (Controlplane)"
-    participant DynamoDB as "State Store (DB)"
-    participant AWS_EC2_API as "AWS EC2 API"
+!!! note "Sequence Diagram for Refresh Worker Terminating Expired Instance/s"
+    ```mermaid
+    sequenceDiagram
+        participant Refresh_Worker as "Refresh (Controlplane)"
+        participant DynamoDB as "State Store"
+        participant AWS
 
-    Cron_Trigger->>+Refresh_Worker: Execute periodic refresh
-    Refresh_Worker->>+DynamoDB: Scan for instances (check state & threshold)
-    DynamoDB-->>-Refresh_Worker: Instance_X_Record (state: 'running', threshold: 'expired_timestamp')
-    Refresh_Worker->>Refresh_Worker: Identify Instance_X as expired
-    Refresh_Worker->>+AWS_EC2_API: TerminateInstances(Instance_X_ID)
-    AWS_EC2_API-->>-Refresh_Worker: Termination Acknowledged
-    Refresh_Worker->>+DynamoDB: Update Instance_X (state: 'terminated', runId: '', threshold: '')
-    DynamoDB-->>-Refresh_Worker: State Updated for Instance_X
-    deactivate Refresh_Worker
-```
+        Note over Refresh_Worker: Triggered by CRON ⏱️
+        Refresh_Worker->>+DynamoDB: Scan for instances (check expired threshold)
+        DynamoDB-->>-Refresh_Worker: Returns expired instance ids
+        Refresh_Worker->>AWS: TerminateInstances(instance_ids)
+        Note over AWS: Instance/s is terminated 🪦
+        Refresh_Worker->>+DynamoDB: Update instances to terminated (state: 'terminated', runId: '', threshold: '')
+    ```
 
-```mermaid
-sequenceDiagram
-    participant Instance
-    participant DynamoDB as "State Store"
-    participant AWS
-    
+!!! note "Sequence Diagram for Instance Self-termination"
+    ```mermaid
+    sequenceDiagram
+        participant Instance
+        participant DynamoDB as "State Store"
+        participant AWS
 
-    Instance-->DynamoDB: periodically fetch own threshold
-    Note over Instance: compares threshold against internal time
-    Instance->>Instance: determine self as expired
-    Instance->>AWS: TerminateInstances(instance_id)
-    AWS->>Instance: AWS terminates instance
-    Note over Instance: shutdown
-```
+        Note over Instance: Background Process in Instance 
+        Instance-->DynamoDB: periodically fetch own threshold
+        Note over Instance: compares threshold against internal time
+        Instance->>Instance: determine self as expired
+        Instance->>AWS: TerminateInstances(instance_id)
+        AWS->>Instance: AWS terminates instance
+        Note over Instance: shutdown
+    ```
 
 These mechanisms cleans up expired resources. They ensure the infrastructure remains healthy, efficient, and cost-effective by automatically cleaning up unused or problematic instances.
 

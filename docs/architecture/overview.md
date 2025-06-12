@@ -125,7 +125,7 @@ Once both steps complete successfully, the instance signals readiness, and the c
 }
 ```
 
-!!! note "Indirect Signalling: Knowing when the Instance is ready ready - a sneek peek"
+??? note "Indirect Signalling: Knowing when the Instance is ready ready - a sneek peek"
     Due to network and security constraints - the controlplane can’t communicate directly with the instances. They rely instead on regularly reading and writing their state in a shared central database (DynamoDB). Below is a lower level view of a successful registration.
     ```mermaid
     sequenceDiagram
@@ -193,6 +193,32 @@ The instance is now in the resource pool and ready for another workflow.
     ```
     This distilled message is placed as a resource pool message in SQS. See below at how this is used.
 
+!!! note "Sequence Diagram for Instance Deregistration and Resource Pool Placement"
+    ```mermaid
+    sequenceDiagram
+        participant Controlplane as "Release (Controlplane)"
+        participant DynamoDB as "State Store"
+        participant Instance
+        participant GitHub
+
+        Note over Controlplane: Release triggered after CI jobs
+        Controlplane->>DynamoDB: Scan instances with the workflows run_id
+        Note over Controlplane: Found instance id/s under run_id 
+
+        Controlplane->>DynamoDB: release instance (state: running->idle, runId: '')
+        Note over Controlplane, Instance: Instances sees emptied runId, initiates deregistration
+
+        Controlplane->>+DynamoDB: Look for deregistration signal
+
+        Instance->>GitHub: Deregister runner from Github
+        GitHub-->Instance: No more active session with Github ✅
+        Instance->>DynamoDB: Signal successful deregistration ✅
+        DynamoDB->>-Controlplane: Successful Deregistration signal found ✅
+        Note over Controlplane: Add instance to resource pool
+        Note over Controlplane: Release concludes 
+        Instance-->DynamoDB: Looking for new assigned runId ♻️
+    ```
+
 ### Reusing Instances (Selection & Claiming)
 
 With the released instance now available in the resource pool, let’s imagine another workflow triggers requesting compute resources. The controlplane first consults the resource pool to check if existing idle resources match the workflow’s requirements.
@@ -240,7 +266,7 @@ If the claim is successful (no other workflow has claimed it first):
 
 After successful claiming, the instance detects the new `runId` and registers itself with GitHub Actions using this new information. Shortly thereafter, the controlplane transitions the instance from `claimed` to `running`, indicating it is now ready to execute CI jobs.
 
-!!! note "Sequence Diagram"
+??? note "Sequence Diagram for Claiming and indirect signalling of readiness"
     ```mermaid
     sequenceDiagram
         participant Controlplane as "Provision (Controlplane)"
@@ -303,7 +329,7 @@ When the refresh worker which executes via cron sees an expired instance, it iss
 
 For redundancy, the instance itself observes its own lifetime. If it sees that it has expired, it and issues a termination command directly to AWS to terminate itself.
 
-!!! note "Sequence Diagram for Refresh Worker Terminating Expired Instance/s"
+??? note "Sequence Diagram for Refresh Worker Terminating Expired Instance/s"
     ```mermaid
     sequenceDiagram
         participant Refresh_Worker as "Refresh (Controlplane)"
@@ -318,7 +344,7 @@ For redundancy, the instance itself observes its own lifetime. If it sees that i
         Refresh_Worker->>+DynamoDB: Update instances to terminated (state: 'terminated', runId: '', threshold: '')
     ```
 
-!!! note "Sequence Diagram for Instance Self-termination"
+??? note "Sequence Diagram for Instance Self-termination"
     ```mermaid
     sequenceDiagram
         participant Instance

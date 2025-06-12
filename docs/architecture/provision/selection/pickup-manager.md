@@ -11,21 +11,6 @@ The Pickup Manager's core responsibilities are:
     * ♻️ If unsuitable for the current request, the message is returned to the SQS queue for other workflows.
     * ❌ If the message represents an invalid or malformed entry, it may be discarded.
 
-
-
-## 1. Interfacing with SQS: The Pickup Lifecycle
-
-The Pickup Manager interacts with SQS in a tight loop designed for low latency and efficient message handling. This process involves several conceptual SQS operations:
-
-| Action by Pickup Manager | Conceptual SQS Operation | Purpose & Notes|
-| :--| :-| :--|
-| 1 Request a message from the resource class-specific SQS queue. | `ReceiveMessage`| A short poll used for discovering available idle runners. |
-| 2 Delete the message from SQS. | `DeleteMessage` | As soon as received, delete the message from the queue to minimize contention by multiple concurrent Provision processes or workers |
-| 3 Filter the message content in-memory.| N/A (Local operation) | The contents of message checked against the workflow’s provision inputs (e.g., `allowedInstanceTypes`, `usageClass`, etc.) |
-| 4a :white_check_mark: **Pass-On (Match Found)**| N/A (Dispatch to Claim Worker) | If check is OK - PM hands to requesting [Claim Worker](./claim-workers.md) |
-| 4b :recycle: **Re-queue (Filter Mismatch)** | `SendMessage`| If mismatching *current* workflow's compute constraints - is sent back to the same SQS queue. A short `DelaySeconds` can be applied to this `SendMessage` to mitigate picking up the same message again |
-| 4c :x: **Discard (Invalid/Malformed Message)** | N/A (Already deleted) | Something is wrong with the message (ie. parsing, unexpected attributes), it is discarded. |
-
 !!! note "Sequence Diagram: Valid Message"
     ```mermaid
     sequenceDiagram
@@ -51,35 +36,46 @@ The Pickup Manager interacts with SQS in a tight loop designed for low latency a
         Note over ClaimWorker: Begin Claiming routine <br> Will re-request from pool if needed
     ```
 
+## 1. Interfacing with SQS: The Pickup Lifecycle
+
+The Pickup Manager interacts with SQS in a tight loop designed for low latency and efficient message handling. This process involves several conceptual SQS operations:
+
+| Action by Pickup Manager | Conceptual SQS Operation | Purpose & Notes|
+| :--| :-| :--|
+| 1 Request a message from the resource class-specific SQS queue. | `ReceiveMessage`| A short poll used for discovering available idle runners. |
+| 2 Delete the message from SQS. | `DeleteMessage` | As soon as received, delete the message from the queue to minimize contention by multiple concurrent Provision processes or workers |
+| 3 Filter the message content in-memory.| N/A (Local operation) | The contents of message checked against the workflow’s provision inputs (e.g., `allowedInstanceTypes`, `usageClass`, etc.) |
+| 4a :white_check_mark: **Pass-On (Match Found)**| N/A (Dispatch to Claim Worker) | If check is OK - PM hands to requesting [Claim Worker](./claim-workers.md) |
+| 4b :recycle: **Re-queue (Filter Mismatch)** | `SendMessage`| If mismatching *current* workflow's compute constraints - message is requeued with a [short delay](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-delay-queues.html) to minimize contention |
+| 4c :x: **Discard (Invalid/Malformed Message)** | N/A (Already deleted) | Something is wrong with the message (ie. parsing, unexpected attributes), it is discarded |
+
 ## 2. Message Handling and Classification Logic
 
-A core piece of logic within the Pickup Manager determines the fate of each dequeued message based on its content and the current workflow's requirements:
+The Pickup Manager evaluates each message using these decision paths:
 
-* **OK (Pass-On)**: This outcome occurs if all the following conditions are met:
-    1. The message's `resourceClass` is valid and matches the target pool.
-    2. Its `cpu` and `mmem` (memory) attributes meet the specifications defined for its `resourceClass`.
-    3. Its `instanceType` matches the workflow's `allowedInstanceTypes` (which can include wildcard patterns).
-    4. Its `usageClass` (e.g., `on-demand` or `spot`) matches the workflow's requested `usageClass`.
-    5. **Action**: The Pickup Manager identifies this `InstanceMessage` as suitable. It is then passed to the Provision orchestrator, which dispatches it to a Claim Worker to attempt the actual claiming of the instance.
+* **OK (Pass-On)** ✅ When:
+    * Message has valid `resourceClass`, matching CPU/memory specifications
+    * Instance type matches workflow's allowed patterns
+    * Usage class (spot/on-demand) matches workflow's requirement
+    * **Action**: Forward to Claim Worker for instance claiming
 
-* **Re-queue (Filter Mismatch for Current Workflow)**: This outcome is chosen if:
-    1. The message represents a valid, healthy instance (e.g., correct `resourceClass`, `cpu`, `mmem` for its type).
-    2. However, it does not meet the *specific* criteria of the *current* workflow (e.g., the `instanceType` is not in the `allowedInstanceTypes` for this particular job, or there's a `usageClass` mismatch).
-    3. **Action**: The Pickup Manager sends the exact message payload back to its original SQS queue. This makes the instance available for other workflows that might have different constraints and for which this instance could be a perfect match.
+* **Re-queue** ♻️ When:
+    * Message is valid but doesn't match current workflow's specific needs
+    * **Action**: Return to queue for other workflows that might need it
 
-* **Delete (Discard Invalid Message)**: An instance message is effectively discarded if:
-    1. The message is found to be malformed, contains inconsistent data (e.g., the `resourceClass` listed in the message doesn't align with the queue it was pulled from), or describes an instance with `cpu`/`mmem` attributes that are fundamentally incorrect for its stated `resourceClass`.
-    2. **Action**: The problematic message is logged. Since it was already deleted from SQS during the initial dequeue step (Step 2 in the lifecycle table), no further action is needed on the queue itself. The Pickup Manager then moves on to attempt picking another message.
+* **Discard** ❌ When:
+    * Message contains invalid/inconsistent data (wrong resource class, insufficient CPU/memory)
+    * **Action**: Drop the message (already deleted from SQS)
 
 ## 3. Pool Exhaustion Detection
 
 The Pickup Manager can determine that a resource pool is "exhausted" for the current workflow's request through two main heuristics:
 
 * **Globally Exhausted (Queue Empty)**:
-  * If an attempt to receive a message from the SQS queue indicates that the queue for the target `resourceClass` is currently empty.
-  * **Outcome**: The Pickup Manager signals to the Provision orchestrator that no idle instances are available in this pool at this moment.
+    * If an attempt to receive a message from the SQS queue indicates that the queue for the target `resourceClass` is currently empty.
+    * **Outcome**: The Pickup Manager signals to the Provision orchestrator that no idle instances are available in this pool at this moment.
 
-!!! note "Sequence Diagram: Global Exhaustion Pool"
+!!! note "Sequence Diagram: Global Exhaustion"
     ```mermaid
     sequenceDiagram
         participant ClaimWorker
@@ -95,9 +91,9 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
     ```
 
 * **Locally Exhausted (Repetitive Unsuitable Messages)**:
-  * To prevent an infinite loop where the Pickup Manager continuously picks, re-queues, and re-picks the same set of messages that are unsuitable for the *current* workflow's specific constraints, it maintains an internal frequency count for each unique `instanceId` it encounters during its current operational cycle.
-  * If the same `instanceId` is dequeued more than a defined tolerance threshold (e.g., 5 times) within the context of a single pickup attempt for a workflow, the Pickup Manager considers the pool locally exhausted *for the current request*.
-  * **Outcome**: The message that triggered this tolerance is still re-queued (so it remains available for other, potentially different, workflow requests). However, the Pickup Manager signals `null` for *this specific pickup attempt*, effectively suspending pickups for this workflow from this pool to avoid unproductive cycling on the same set of unsuitable instances.
+    * To prevent an infinite loop where the Pickup Manager continuously picks, re-queues, and re-picks the same set of messages that are unsuitable for the *current* workflow's specific constraints, it maintains an internal frequency count for each unique `instanceId` it encounters during its current operational cycle.
+    * If the same `instanceId` is dequeued more than a defined tolerance threshold (e.g., 5 times) within the context of a single pickup attempt for a workflow, the Pickup Manager considers the pool locally exhausted *for the current request*.
+    * **Outcome**: The message that triggered this tolerance is still re-queued (so it remains available for other, potentially different, workflow requests). However, the Pickup Manager signals `null` for *this specific pickup attempt*, effectively suspending pickups for this workflow from this pool to avoid unproductive cycling on the same set of unsuitable instances.
 
 !!! note "Sequence Diagram: Local Exhaustion"
     ```mermaid
@@ -136,4 +132,4 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
 
 ---
 
-This SQS-based resource pool and the described Pickup Manager logic allow the Provision mode to efficiently scan for and reuse warm, idle runner instances. It prioritizes reuse by quickly filtering available instances, only falling back to provisioning fresh EC2 capacity when the pool is genuinely exhausted or no suitable candidates can be found.
+:sunny:

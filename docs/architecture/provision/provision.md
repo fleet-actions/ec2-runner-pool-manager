@@ -30,7 +30,7 @@ It does this by rapidly scanning the [**Resource Pool**](../resource-pool.md), f
          participant ClaimWorker as "Claim Worker(s)"
          participant DynamoDB
 
-         Note over ClaimWorker: Claim Workers Initialized
+         Note over PickupManager, ClaimWorker: Pickup Manager and Claim Workers Initialized
          ClaimWorker->>PickupManager: Request for an instance
          PickupManager->>ResourcePool: Request Instance Message
          ResourcePool-->>PickupManager: Pickup Instance Message

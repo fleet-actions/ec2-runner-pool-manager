@@ -127,4 +127,4 @@ See linked page for more detail:
 
 - [Post Provision](./post-provision.md)
 
-<!-- ☀️ -->
+:sunny:

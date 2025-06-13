@@ -74,6 +74,6 @@ If **any** part of the request fails (including partial fulfilment):
 
 1. Provision logs the `CreateFleet` error.  
 2. Immediately issues a single `TerminateInstances` for every ID returned.  
-3. Surfaces a clear `provision_failed` error to the workflow.
+3. Surfaces a clear failed error to the workflow.
 
-Because AWS already retries internally across capacity pools, a second identical request is unlikely to succeed; failing fast and alerts operators to widen constraints or retry later.
+:sunny:

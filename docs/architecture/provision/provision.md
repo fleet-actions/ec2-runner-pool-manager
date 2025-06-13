@@ -96,11 +96,10 @@ If the resource pool simply can’t meet the workflow’s needs - provision fall
 
          Note over Instance: Instance boots
          Instance->>Instance: Run user-data bootstrap
-         Note over Instance: Register with Github
-         Note over Instance: Await for CI Jobs ♻️
-         Instance->>DynamoDB: Signal successful registration
          Instance-->DynamoDB: Begin emitting heartbeats ♻️ 
-         
+         Note over Instance: Register with Github
+         Instance->>DynamoDB: Signal successful registration
+         Note over Instance: Await for CI Jobs ♻️
          
          alt All signals received within timeout
             DynamoDB->>-Provision: Signals found within timeout

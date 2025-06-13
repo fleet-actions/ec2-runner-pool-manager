@@ -163,4 +163,4 @@ The claiming process concludes in one of two ways:
         Note right of CW: Retry process with <br>new candidate from Pickup Manager
     ```
 
-<!-- :sun: -->
+:sun:

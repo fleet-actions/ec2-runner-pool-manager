@@ -125,6 +125,4 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
         Note over ClaimWorker: Claim worker informs <br>controlplane of exhaustion
     ```
 
----
-
 :sunny:

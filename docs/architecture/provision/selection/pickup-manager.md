@@ -51,21 +51,16 @@ The Pickup Manager interacts with SQS in a tight loop designed for low latency a
 
 ## 2. Message Handling and Classification Logic
 
-The Pickup Manager evaluates each message using these decision paths:
+The Pickup Manager evaluates each dequeued message to determine its fate based on the workflow's requirements:
 
-* **OK (Pass-On)** ✅ When:
-    * Message has valid `resourceClass`, matching CPU/memory specifications
-    * Instance type matches workflow's allowed patterns
-    * Usage class (spot/on-demand) matches workflow's requirement
-    * **Action**: Forward to Claim Worker for instance claiming
+* **✅ OK (Pass-On)**: The message's attributes (instance type, usage class, CPU/memory) are a suitable match.
+    * **Action**: The message is passed to a [Claim Worker](./claim-workers.md) to attempt claiming the instance.
 
-* **Re-queue** ♻️ When:
-    * Message is valid but doesn't match current workflow's specific needs
-    * **Action**: Return to queue for other workflows that might need it
+* **♻️ Re-queue**: The instance is valid but doesn't meet the current workflow's specific filters (e.g., a different instance type is needed).
+    * **Action**: The message is sent back to its SQS queue, making it available for other, potentially more suitable, workflow requests.
 
-* **Discard** ❌ When:
-    * Message contains invalid/inconsistent data (wrong resource class, insufficient CPU/memory)
-    * **Action**: Drop the message (already deleted from SQS)
+* **❌ Discard**: The message is malformed, describes an instance with specs that don't match its resource class, or is otherwise invalid.
+    * **Action**: The message is logged and effectively dropped, as it was already deleted from the SQS queue upon receipt.
 
 ## 3. Pool Exhaustion Detection
 
@@ -91,9 +86,9 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
     ```
 
 * **Locally Exhausted (Repetitive Unsuitable Messages)**:
-    * To prevent an infinite loop where the Pickup Manager continuously picks, re-queues, and re-picks the same set of messages that are unsuitable for the *current* workflow's specific constraints, it maintains an internal frequency count for each unique `instanceId` it encounters during its current operational cycle.
-    * If the same `instanceId` is dequeued more than a defined tolerance threshold (e.g., 5 times) within the context of a single pickup attempt for a workflow, the Pickup Manager considers the pool locally exhausted *for the current request*.
-    * **Outcome**: The message that triggered this tolerance is still re-queued (so it remains available for other, potentially different, workflow requests). However, the Pickup Manager signals `null` for *this specific pickup attempt*, effectively suspending pickups for this workflow from this pool to avoid unproductive cycling on the same set of unsuitable instances.
+    * To prevent an infinite loop due to the Pickup Manager requeueing behavior with unsuitable messages, it maintains an internal frequency count for each unique `instanceId` it encounters during its current operational cycle.
+    * If the same `instanceId` is dequeued more than a defined tolerance threshold (ie., 5 times), the Pickup Manager considers the pool exhausted for the workflow.
+    * **Outcome**: The message that triggered this tolerance is still re-queued (so it remains available for other, potentially different, workflow requests). However, the Pickup Manager signals `null` any interfacing claim workers - effectively suspending pickups for this workflow.
 
 !!! note "Sequence Diagram: Local Exhaustion"
     ```mermaid

@@ -1,61 +1,57 @@
 # Claim Workers
 
-Claim Workers are lightweight asynchronous tasks—implemented as JavaScript `Promises` and launched in parallel using `Promise.allSettled()`—that attempt to turn idle runners into ready-to-run resources for the current workflow. For a workflow requesting N instances, the control-plane spawns N Claim Workers concurrently.
+Claim Workers are asynchronous tasks that run in parallel to secure idle runners for a workflow. Each worker executes a loop to pick up, claim, and verify an instance from the resource pool.
+The core responsibilities are:
 
-Their primary function is to race to secure available idle instances from the SQS resource pool, update their state in DynamoDB to `claimed` for a specific workflow, and then verify the instance is healthy and correctly registered before handing it off.
+* **Atomic Claim**: Perform a conditional update in DynamoDB to transition an instance's state from idle to claimed, guaranteeing exclusive ownership.
+* **Health Verification**: Check the instance's heartbeat in DynamoDB to ensure it's responsive.
+* **Registration Check**: Wait for a signal from the instance's agent confirming it's registered and ready for work.
 
-Key responsibilities can be visualized as:
-A Pickup Message from SQS (representing an idle instance) is processed by a Claim Worker. This worker executes a promise chain. If successful, the instance transitions from an `idle` state, to `claimed`, and finally to `running`.
+If an instance fails any of these checks, the worker discards it—terminating it if necessary—and attempts to claim a new one from the pool. This ensures that only fully validated runners are provisioned.
 
-- **Parallelism**: Multiple workers operate concurrently, racing to secure available runners from the pool.
-- **Atomic State Transitions**: Each worker performs a conditional update in DynamoDB (from `idle` to `claimed`) to guarantee exclusive ownership of an instance for a specific workflow.
-- **Liveness & Health Verification**: Before an instance is considered fully claimed and ready for the workflow, the worker validates its heartbeat and registration status by observing signals written by the instance itself into DynamoDB.
+<!-- :sun: -->
 
-```mermaid
-sequenceDiagram
-    participant CW as "Claim Worker"
-    participant PM as "Pickup Manager"
-    participant DDB as "DynamoDB"
-    participant InstanceEC2 as "EC2 Instance (via User Data)"
-    participant GitHub
+!!! note "Sequence Diagram: Successful Claim and Checks"
+    ```mermaid
+    sequenceDiagram
+        participant CW as "Claim Worker"
+        participant DDB as "DynamoDB"
+        participant Instance
+        participant GitHub
 
-    Note over CW: Receives candidate_instance_id from Pickup Manager
-    PM-->>CW: candidate_instance_id
+        Note right of CW: Receives candidate_instance_id<br>from Pickup Manager
+        Instance-->DDB: Periodically emit Heartbeat ♻️
 
-    CW->>+DDB: Attempt Atomic Claim: Update instance_id (state: idle->claimed, set run_id, set claim_threshold)
-    DDB-->>-CW: Claim Successful
+        CW->>+DDB: Attempt Atomic Claim: Update instance_id<br>(idle->claimed, set run_id)
+        DDB-->>-CW: Claim Successful
+        
+        Note over Instance, DDB: Instance polls DB, detects new run_id
+        CW->>+DDB: Poll for Registration Signal<br>(instance_id, expected run_id, UD_REG_OK)
 
-    Note over InstanceEC2, DDB: Instance polls DDB, detects new run_id
+        Instance->>+GitHub: Register with run_id
+        GitHub-->>-Instance: Registration OK
 
-    InstanceEC2->>+GitHub: Register with run_id
-    GitHub-->>-InstanceEC2: Registration OK
+        Instance->>DDB: Write Worker Signal (UD_REG_OK, run_id)
 
-    InstanceEC2->>+DDB: Write Worker Signal (UD_REG_OK, run_id)
-    DDB-->>-InstanceEC2: Signal Written
+        Instance-->GitHub: Able to pickup CI Jobs ♻️ 
+        
+        DDB-->>-CW: Signal OK
+        CW->>+DDB: Poll for Heartbeat (instance_id)
+        DDB-->>-CW: Heartbeat OK (recent)
 
-    InstanceEC2->>+DDB: Write Heartbeat (updatedAt)
-    DDB-->>-InstanceEC2: Heartbeat Written
-
-    CW->>+DDB: Poll for Heartbeat (instance_id)
-    DDB-->>-CW: Heartbeat OK (recent)
-
-    CW->>+DDB: Poll for Registration Signal (instance_id, expected run_id, UD_REG_OK)
-    DDB-->>-CW: Signal OK
-
-    Note over CW: Instance claimed, healthy, and registered.
-    CW-->>Orchestrator: Return Success (instance_id, instance_details) 
-    %% Orchestrator would then transition DDB state: claimed->running
-```
+        Note right of CW: Instance claimed, healthy, and registered ✅
+        Note right of CW: Instance details handed to post-provision
+    ```
 
 ## Instance Claiming Process
 
-1. **Receive Candidate Instance**: A Claim Worker receives a candidate instance message from the Pickup Manager (which reads from the SQS resource pool). This message describes an idle instance.
+1. **Receive Candidate Instance**: A Claim Worker receives a candidate instance message from the [Pickup Manager](./pickup-manager.md). The controlplane expects this message to describe an idle instance.
 2. **Attempt Atomic State Update in DynamoDB**: The worker attempts a single,
     atomic conditional write operation in DynamoDB.
     - **Condition**: The operation only succeeds if the instance is currently in an `idle` state and has no `runId` associated with it.
-    - **Mutation**: If the condition is met, the instance's state is updated to `claimed`, the unique `workflow-runId` is assigned to it, and a new `threshold` (claimTimeout) is set.
-    - **Significance of `runId` Assignment**: This assignment of the `workflow-runId` is the primary trigger for the EC2 instance. As detailed in the [User-Data Bootstrap Script's 'Registration & Deregistration Loop' (user-data.md#4-registration--deregistration--loop)](../user-data.md#4-registration--deregistration--loop), the instance's `blockRegistration` function actively polls DynamoDB until this `runId` is populated. Upon detecting the new `runId`, the instance initiates its registration process with GitHub.
-3. **Collision Handling**: If the conditional write to DynamoDB fails (e.g., because another Claim Worker claimed the instance fractions of a second earlier), the worker's promise rejects. The calling orchestrator (Provision) will then typically request another candidate instance from the Pickup Manager for this worker to try again.
+    - **Mutation**: If the condition is met, the instance's state is updated to `claimed`, a new `runId`, and a `threshold` (claimTimeout) is set.
+    * **Significance of `runId` Assignment**: This `runId` assignment is the primary trigger for the instance to register itself against Github. This id is used as its label in order to properly associate the workflow's CI jobs to the instance (see [Instance Initialization](../../instance-initialization.md)).
+3. **Collision Handling**: If the conditional write to DynamoDB fails (ie. another Claim Worker claimed the instance), the worker simply requests another candidate from the Pickup Manager to try again.
 
 Example record transition in DynamoDB:
 
@@ -81,17 +77,17 @@ Example record transition in DynamoDB:
 }
 ```
 
-!!! note "Claim Lifetime"
-    The `threshold` set during the claim limits how long the instance can remain in the `claimed` state without successfully completing its registration and health checks. This ensures that if an instance gets stuck during this phase, the claim will eventually self-expire, and the instance can be re-evaluated by the `refresh` process.
+!!! note "Claim Lifetime (`threshold`) versus Registration & Health Checks"
+    The `threshold` set during the claim limits how long the instance can remain in the `claimed` state without successfully completing its registration and health checks. This ensures that if an instance gets stuck during this phase, the claim will eventually self-expire and will be terminated by the controlplane.
 
 ## Post-Claim Checks: Verifying Health and Registration
 
-Once an instance is successfully marked as `claimed` in DynamoDB, the Claim Worker enters a polling loop. It watches for two key signals that the instance writes into DynamoDB. This indirect signaling mechanism, where the instance publishes its own health and registration status, means the control-plane (and thus the Claim Worker) does not need to directly call EC2 or GitHub APIs for these checks, mitigating potential API rate limit issues.
+Once an instance is successfully marked as `claimed` in DynamoDB, the Claim Worker polls for two key signals that the instance writes into DynamoDB. This indirect signaling mechanism means that we do not need to directly call AWS/GitHub APIs for these checks, mitigating potential API rate limit issues.
 
 Before the worker considers the claim fully successful and resolves its promise, it verifies:
 
-| Check        | Verification Method                                    | Pass Condition                                      | Timeout |
-|--------------|--------------------------------------------------------|-----------------------------------------------------|---------|
+| Check | Verification Method | Pass Condition   | Timeout |
+|--|--|--|--|
 | **Heartbeat** | Checks the `HB` item for the instance in DynamoDB.     | The `updatedAt` timestamp of the heartbeat must be within the `HEARTBEAT_HEALTH_TIMEOUT`. | ~15 s   |
 | **Registration** | Checks the `WS` (Worker Signal) item for the instance in DynamoDB. | The signal value must be `UD_REG_OK`, and the `runId` in the signal must match the current workflow's `runId`. | ~10 s   |
 
@@ -105,7 +101,7 @@ Before the worker considers the claim fully successful and resolves its promise,
 }
 ```
 
-This record is continuously updated by the `heartbeat.sh` agent running on the instance, as described in the [User-Data Bootstrap Script under 'Background Agents' (user-data.md#3-background-agents)](../user-data.md#3-background-agents).
+This record is continuously updated by the `heartbeat.sh` agent running on the instance, as described in [Instance Initialization](../../instance-initialization.md).
 
 **Registration Signal Record in DynamoDB (Example):**
 (Primary Key: `TYPE#WS`, Sort Key: `ID#i-123`)
@@ -119,42 +115,52 @@ This record is continuously updated by the `heartbeat.sh` agent running on the i
 }
 ```
 
-This signal is emitted by the instance itself after it successfully completes its GitHub registration process using the assigned `runId`. This entire registration sequence by the instance is detailed in the [User-Data Bootstrap Script under 'Registration & Deregistration Loop' (user-data.md#4-registration--deregistration--loop)](../user-data.md#4-registration--deregistration--loop).
+This signal is emitted by the instance itself after it successfully completes its GitHub registration process using the assigned `runId`. This entire registration sequence by the instance is detailed in [Instance Initialization](../../instance-initialization.md).
 
 !!! note "Health Timeout and Signal Timeouts"
     Currently, the specific timeout values for heartbeat validation and registration signal polling are internal to the control-plane and not externally tunable.
 
-!!! note "How the instance knows what to signal and when"
-    The EC2 runner's internal registration loop, as detailed in the [User-Data Bootstrap Script (user-data.md#4-registration--deregistration--loop)](../user-data.md#4-registration--deregistration--loop), is designed to:
-    1.  Detect the new `runId` (set by this Claim Worker during the "Instance Claiming Process").
-    2.  Use this `runId` to register with GitHub Actions, ensuring it's associated with the correct workflow.
-    3.  After successful registration, write the `UD_REG_OK` signal along with the `runId` into its WorkerSignal (`WS`) record in DynamoDB.
+### Process Outcomes
 
-### Coordination Handshake Summary
+The claiming process concludes in one of two ways:
 
-The claiming process relies on this clear handshake:
+* **Success:** When both heartbeat and registration checks pass, the Claim Worker returns the verified instance details to the Provision orchestrator. The orchestrator then transitions the instance's state to `running`, making it ready for workflow jobs.
 
-1. **Claim Worker (Controlplane):** Atomically updates the instance state to `claimed` and assigns the `workflow-runId` in DynamoDB.
-2. **Instance (per `user-data.md`):** Its `blockRegistration` function detects this newly assigned `runId`.
-3. **Instance (per `user-data.md`):** Proceeds to register with GitHub using this `runId`.
-4. **Instance (per `user-data.md`):** After successful registration, emits the `UD_REG_OK` signal (including the `runId`) into its `WS` item in DynamoDB.
-5. **Instance (per `user-data.md`):** The separate `heartbeat.sh` agent continues to update its `HB` item in DynamoDB with a "PING" and current timestamp.
-6. **Claim Worker (Controlplane):** Polls DynamoDB and verifies both the `UD_REG_OK` signal (matching the expected `runId`) from the `WS` item and a recent timestamp from the `HB` item.
+* **Failure:** If either check fails, the worker deems the instance non-viable. It expires the instance's DynamoDB record (marking it for cleanup) and may directly terminate the EC2 instance. The worker then signals failure to the orchestrator, which can either instruct a retry with a new candidate or, if the pool is exhausted, trigger the provisioning of new capacity (ie. [Creation](../creation/fleet-creation.md)).
 
-### Success Path
+!!! note "Sequence Diagram: Successful Claim but Failed Checks"
+    ```mermaid
+    sequenceDiagram
+        participant CW as "Claim Worker"
+        participant DDB as "DynamoDB"
+        
+        participant Instance
+        participant AWS
 
-- Both the heartbeat check and the registration signal check pass before their respective timeouts.
-- The Claim Worker successfully resolves its promise. It returns the instance ID and other relevant instance details back to the Provision orchestrator, indicating the instance is claimed, healthy, registered, and ready for the workflow. The Provision orchestrator will then transition the instance's state from `claimed` to `running`.
+        Note right of CW: Receives candidate_instance_id<br>from Pickup Manager
 
-### Failure Path
+        CW->>+DDB: Attempt Atomic Claim (idle -> claimed, set run_id)
+        DDB-->>-CW: Claim Successful
 
-- If a recent heartbeat is missing (stale or non-existent), or if the correct registration signal (`UD_REG_OK` with the matching `runId`) is not observed within the `registrationTimeout`:
-  - The Claim Worker determines the instance is not viable.
-  - It will typically expire the instance in DynamoDB (marking it for termination by the `refresh` process) or directly initiate termination of the EC2 instance.
-  - The worker logs the reason for the failure.
-  - The worker's promise rejects, signaling to the Provision orchestrator that this attempt failed. The orchestrator may then instruct the worker to retry with a new candidate instance from the pool.
-- If the resource pool is exhausted and no more candidates are available, the Claim Worker exits without providing instance details. This signals to the Provision orchestrator that new EC2 instances may need to be created.
+        Note over Instance, DDB: Instance detects new run_id<br>but fails to register with GitHub<br>or crashes.
 
----
+        CW->>+DDB: Poll for Registration Signal (UD_REG_OK)
 
-This fully internal, signal-driven health and registration check mechanism allows the control-plane (and its Claim Workers) to remain stateless and API-independent for these critical verification steps, while still guaranteeing that only healthy and correctly registered runners are provided to workflows.
+        loop For ~10 seconds
+            DDB-->>CW: Signal not found...
+        end
+
+        DDB-->>-CW: Final response: Polling timed out ❌
+
+        Note right of CW: Instance is non-viable. Terminating.
+
+        CW->>AWS: Terminate Instance (instance_id)
+        AWS->>Instance: Terminate Instance
+        Note over Instance: Shutdown
+
+        CW->>DDB: Mark instance as expired in DB
+
+        Note right of CW: Retry process with <br>new candidate from Pickup Manager
+    ```
+
+<!-- :sun: -->

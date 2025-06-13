@@ -101,7 +101,7 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
         
         Note over PM: Initialize frequency counter for instances
 
-        rect rgb(240, 240, 240)
+        rect 
             Note right of PM: Loop: First instance pickup attempt
             PM-->SQS_Pool: Dequeue instance_A Message
             
@@ -112,7 +112,7 @@ The Pickup Manager can determine that a resource pool is "exhausted" for the cur
 
         Note over PM: Additional cycles (truncated)
 
-        rect rgb(240, 240, 240)
+        rect
             Note right of PM: Loop: Later pickup attempts <br> imagine only instance_A is in Pool
             PM-->SQS_Pool: Dequeue instance_A Message (again)
             

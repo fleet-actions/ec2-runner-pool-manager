@@ -2,7 +2,7 @@
 
 The Refresh process is a periodic, idempotent background operation, executed by a scheduled GitHub Actions workflow (e.g., via `cron`), that acts as the system's central initializer and maintainer. Unlike the event-driven `provision` and `release` modes which are tied to workflows, `refresh` operates on the entire system to ensure the live infrastructure and configuration in AWS align with a centrally defined *desired state*.
 
-Its core purpose is to initialize foundational infrastructure and to perform routine maintenance, ensuring the system remains healthy and configured as intended.
+Its core purpose is to initialize foundational infrastructure and to perform routine maintenance.
 
 ## The Refresh Model: Desired vs. Actual State
 
@@ -11,7 +11,7 @@ The entire Refresh process is built on this model: it compares a **Desired State
 * **Desired State**: The configuration you provide as input. This includes the AMI for runners, resource class definitions, maximum instance lifetimes, and approved subnets. This is your "source of truth."
 * **Actual State**: The resources and records that currently exist, such as EC2 Launch Templates, SQS queues, and instance state records in DynamoDB.
 
-This model makes the process inherently **idempotent**—it can be run repeatedly with the same desired state, and it will only make changes if a drift is detected.
+This model makes the process inherently **idempotent**, it can be run repeatedly with the same desired state, and it will only make changes if a drift is detected.
 
 ## Core Refresh Tasks
 
@@ -61,9 +61,11 @@ This task acts as the system's garbage collector, enforcing the defined lifecycl
             DDB-->>-Maintainer: Cleanup OK
     ```
 
-## The Power of a Centralized Refresh Process ✨
+## Centralized Config & Decoupling ✨
 
 This centralized `refresh` approach provides advantages to decoupling:
 
 * **Centralized Configuration**: All major changes to the runner environment (like updating the AMI) can be done by changing a single configuration value and letting the initializer handle the rollout.
 * **Decoupling of Concerns**: The `provision` logic doesn't need to know how to build an instance; it just needs to know which Launch Template to use. The `refresh` process handles the "how," keeping concerns cleanly separated.
+
+:sunny:

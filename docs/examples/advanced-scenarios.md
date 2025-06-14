@@ -6,41 +6,39 @@ This page showcases advanced scenarios using `fleet-actions/ec2-runner-pool-mana
 
 To use different purchasing options (e.g., `on-demand` for critical release workflows and `spot` for regular CI), you'll typically define these in separate workflow files. Each workflow will provision runners with its specified `usage-class`.
 
-### Refresh Configuration (`.github/workflows/refresh.yml`)
+??? note "Sample Refresh Configuration (`.github/workflows/refresh.yml`)"
+    Your `refresh.yml` remains standard. It manages the overall pool and AWS resources.
+    ```yaml
+    # .github/workflows/refresh.yml
+    name: Refresh Runner Pool
+    # ... (standard refresh configuration as in previous examples) ...
+    on:
+      workflow_dispatch:
+      schedule:
+        - cron: "*/15 * * * *"
 
-Your `refresh.yml` remains standard. It manages the overall pool and AWS resources.
-
-```yaml
-# .github/workflows/refresh.yml
-name: Refresh Runner Pool
-# ... (standard refresh configuration as in previous examples) ...
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
-
-jobs:
-  refresh_job:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@main
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1 # Or your desired region
-      - name: Refresh EC2 Runner Pool
-        uses: fleet-actions/ec2-runner-pool-manager@main
-        with:
-          mode: refresh
-          github-token: ${{ secrets.GH_PAT }}
-          ami: ami-xxxxxxxxxxxxxxxxx # Your chosen AMI ID
-          iam-instance-profile: YourInstanceProfileName
-          security-group-ids: sg-xxxxxxxxxxxxxxxxx
-          subnet-ids: subnet-xxxxxxxxxxxxxxxxx subnet-yyyyyyyyyyyyyyyyy
-          # allowed-instance-types: "c* m* r* t*" # Optional: Broadly define if not overriding
-          # max-runtime-min: 60 # Optional: Default max runtime
-```
+    jobs:
+      refresh_job:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@main
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: us-east-1 # Or your desired region
+          - name: Refresh EC2 Runner Pool
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: refresh
+              github-token: ${{ secrets.GH_PAT }}
+              ami: ami-xxxxxxxxxxxxxxxxx # Your chosen AMI ID
+              iam-instance-profile: YourInstanceProfileName
+              security-group-ids: sg-xxxxxxxxxxxxxxxxx
+              subnet-ids: subnet-xxxxxxxxxxxxxxxxx subnet-yyyyyyyyyyyyyyyyy
+              # allowed-instance-types: "c* m* r*" # Optional: Broadly define if not overriding
+              # max-runtime-min: 60 # Optional: Default max runtime
+    ```
 
 ### CI Workflow with Spot Instances (`.github/workflows/main-ci.yml`)
 
@@ -72,7 +70,7 @@ jobs:
           mode: provision
           instance-count: 3 # Number of spot runners for parallel jobs
           usage-class: spot
-          allowed-instance-types: "c* m* t*" # Flexible, cost-effective types
+          allowed-instance-types: "c* m*" # Flexible, cost-effective types
 
   build_and_test:
     needs: provision_spot_runners
@@ -177,46 +175,44 @@ jobs:
 
 To use runners with different CPU/memory profiles for various tasks (e.g., standard builds vs. CPU-intensive computations), you can define custom resource classes and provision them in separate workflow files.
 
-### Refresh Configuration with Custom Resource Classes (`.github/workflows/refresh.yml`)
+??? note "Sample Refresh Configuration with Custom Resource Classes (`.github/workflows/refresh.yml`)"
+    Define `resource-class-config` in your `refresh.yml` to specify your custom CPU and memory configurations.
+    ```yaml
+    # .github/workflows/refresh.yml
+    name: Refresh Runner Pool with Custom CPU Classes
 
-Define `resource-class-config` in your `refresh.yml` to specify your custom CPU and memory configurations.
+    on:
+      workflow_dispatch:
+      schedule:
+        - cron: "*/15 * * * *"
 
-```yaml
-# .github/workflows/refresh.yml
-name: Refresh Runner Pool with Custom CPU Classes
-
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
-
-jobs:
-  refresh_job:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@main
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-      - name: Refresh EC2 Runner Pool
-        uses: fleet-actions/ec2-runner-pool-manager@main
-        with:
-          mode: refresh
-          github-token: ${{ secrets.GH_PAT }}
-          ami: ami-general-purpose-xxxxxxxx # A general-purpose AMI suitable for all tasks
-          iam-instance-profile: YourInstanceProfileName
-          security-group-ids: sg-xxxxxxxxxxxxxxxxx
-          subnet-ids: subnet-xxxxxxxxxxxxxxxxx
-          resource-class-config: |
-            {
-              "standard-compute": { "cpu": 2, "mmem": 4096 },
-              "high-cpu-compute": { "cpu": 8, "mmem": 16384 }
-            }
-          # Broad allowed-instance-types; specific workflows can refine this
-          allowed-instance-types: "c* m* r*"
-```
+    jobs:
+      refresh_job:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@main
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: us-east-1
+          - name: Refresh EC2 Runner Pool
+            uses: fleet-actions/ec2-runner-pool-manager@main
+            with:
+              mode: refresh
+              github-token: ${{ secrets.GH_PAT }}
+              ami: ami-general-purpose-xxxxxxxx # A general-purpose AMI suitable for all tasks
+              iam-instance-profile: YourInstanceProfileName
+              security-group-ids: sg-xxxxxxxxxxxxxxxxx
+              subnet-ids: subnet-xxxxxxxxxxxxxxxxx
+              resource-class-config: |
+                {
+                  "standard-compute": { "cpu": 2, "mmem": 4096 },
+                  "high-cpu-compute": { "cpu": 8, "mmem": 16384 }
+                }
+              # Broad allowed-instance-types; specific workflows can refine this
+              allowed-instance-types: "c* m* r*"
+    ```
 
 ### Standard Compute Workflow (`.github/workflows/ci-standard.yml`)
 

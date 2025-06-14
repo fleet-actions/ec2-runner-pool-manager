@@ -15,8 +15,6 @@ The core components in more detail:
 
 ## Core Concepts Expanded
 
-Let's clearly expand the foundational concepts briefly introduced in [index.md](../index.md):
-
 ### Controlplane Operational Modes
 
 The controlplane operates in three distinct modes:
@@ -42,12 +40,12 @@ These modes interact through a shared state mechanism stored in DynamoDB, enabli
 
 ### **Instances and Runners**
 
-EC2 Instances—also called runners—are dynamically managed resources executing CI workflows. They maintain minimal agents installed at instance startup for:
+EC2 Instances (as self-hosted runners) are dynamically managed resources executing CI workflows. They maintain [minimal agents installed](./instance-initialization.md) at instance startup for:
 
 - Initializing runner environments via custom scripts (`pre-runner-script`).
 - Registering and deregistering with GitHub Actions runner APIs.
 - Sending periodic health signals (heartbeats) to the shared state store.
-- Observing state changes (e.g., claim attempts, runId assignments) for timely registration.
+- Observing state changes (e.g. runId assignments) for timely registration.
 
 ### **Instance States and Transition Mechanisms**
 
@@ -81,7 +79,7 @@ To gain a better understanding with how the controlplane manages runner, we’ll
 
 ### Creation of an Instance
 
-Imagine a workflow kicks off, requiring compute resources to execute CI jobs. Via `provision`, the controlplane first looks to reuse resources and checks the [resource pool](./resource-pool.md) (implemented as an SQS queue) for idle instances.
+Imagine a workflow kicks off, requiring compute resources to execute CI jobs. Via `provision`, the controlplane first looks to reuse resources and checks the [resource pool](./resource-pool.md) (backed by SQS queues) for idle instances.
 
 - If a suitable instance is found, it gets immediately claimed.
 - If not, the controlplane creates a new EC2 instance.
@@ -108,7 +106,7 @@ As soon as an instance is created, it enters the created state in our central da
 
 After creation, the instance begins initializing itself. Since the controlplane and the instances cannot communicate directly, they use indirect signaling through a shared database.
 
-The instance performs two [essential initialization steps](./instance-bootstrap.md):
+The instance performs two [essential initialization steps](./instance-initialization.md):
 
 - Pre-runner Script: Runs the user-defined script on the instance.
 - Runner Registration: The instance registers itself as a GitHub Actions runner using the `runId`.

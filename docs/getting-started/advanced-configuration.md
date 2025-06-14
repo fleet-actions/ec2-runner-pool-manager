@@ -265,7 +265,6 @@ At a minimum, the role given to the instance needs to be able to self-terminate 
 ??? tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
     [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html) is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance role with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). When used with Machine Images built on Amazon Linux 2023 and Ubuntu - Session Manager should work out of the box as the [SSM Agent is pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) 🤩
 
-
 ### Network Security
 
 #### Security Groups

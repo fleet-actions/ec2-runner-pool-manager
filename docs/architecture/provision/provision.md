@@ -1,4 +1,4 @@
-# Provision
+# Provision: Providing Compute ⚡
 
 Provision is a core operational mode of the controlplane designed to ensure GitHub Actions workflows always have suitable the EC2 instances required to execute CI jobs. Provision achieves these goals through two sub-components:
 

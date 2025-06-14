@@ -2,7 +2,7 @@
 
 Page Highlights some basic workflow scenarios
 
-## Using a Matrix Strategy for Ruby Versions
+## Using a Matrix Strategy (Example: for Ruby Versions)
 
 This example demonstrates how to use `fleet-actions/ec2-runner-pool-manager` to efficiently manage self-hosted runners for a common CI scenario: testing a project across a matrix of Ruby versions.
 

@@ -67,8 +67,8 @@ nav:
       - Release: architecture/release.md
       - Refresh: architecture/refresh.md
       - Others:
-          - Instance Bootstrap: architecture/other/instance-initialization.md
-          - Resource Pool: architecture/other/resource-pool.md
+          - Instance Bootstrap: architecture/instance-initialization.md
+          - Resource Pool: architecture/resource-pool.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md
       - Advanced Scenarios: examples/advanced-scenarios.md

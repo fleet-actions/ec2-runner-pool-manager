@@ -1,43 +1,41 @@
-# Scale & Reuse Self-Hosted EC2 Runners inside GitHub Actions :recycle: :rocket:
+# Simple, Scalable & Reusable EC2 Runners for GitHub Actions
 
 ![Sample-Workflow](assets/sample-workflow-light.png)
 
-This Action enables you to run a pool of self-hosted EC2 runners within the
-Github Actions runtime. No separate controlplane with Kubernettes/Terraform/CDK.
-Resource pooling, scale-in/scale-out, termination of the runners are all handled
-by the action. Free cake!!
+This Action enables you to run a pool of self-hosted EC2 runners directly within the GitHub Actions runtime. Resource pooling, scale-in/scale-out, and the entire runner lifecycle are all managed by the action itself - no external control plane or infrastructure-as-code required.
 
-![Architecture](assets/simplified-architecture.png)
+## :zap: Motivation: YAML-first control
 
-## :zap: Motivation
+This action was explicitly designed to **embed** the control plane within GitHub Actions, avoiding the complexity of separate infrastructure or specialized expertise in Kubernetes or Terraform. While existing solutions either require external control planes or sacrifice performance for simplicity, this project combines the best of both worlds.
 
-This action was explicitly designed to **embed** the controlplane within Github Actions, avoiding the complexity of separate infrastructure or specialized expertise in Kubernetes/Terraform. While existing solutions either require external control planes or sacrifice performance for simplicity, this project aims to combine the best of both approaches.
+The key benefits of this embedded approach are:
 
-With this embedded approach, we get the following benefits:
+- **Zero-Infrastructure Control Plane**: No deploying and managing separate services or webhooks.
+- **Integrated Logging**: Runner logs are readily accessible within your [workflow run logs](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/monitoring-workflows/using-workflow-run-logs).
+- **Resource Pooling**: Workflows first try to reuse warm, idle runners from a shared pool, minimizing cold-starts and optimizing costs.
 
-- **Embedded Controlplane** - No deploying and managing separate control planes. No webhook configuration.
-- **Runner Logs** - Logs are readily accessible within the [workflow run logs](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/monitoring-workflows/using-workflow-run-logs).
-- **Resource Pooling** - When provisioning for a workflow, this action first interrogates the shared pool of resources for reuse, minimizing cold-starts and optimizing costs.
-- **Simplified Operations** - Manage multiple instances per job without complex wrapper patterns.
+## :building_construction: How It Works: An Embedded Lifecycle Manager
 
-Inspired by tools like [Actions Runner Controller](https://github.com/actions/actions-runner-controller), [terraform-aws-github-runner](https://github.com/github-aws-runners/terraform-aws-github-runner), and [machulav/ec2-github-runner](https://github.com/machulav/ec2-github-runner), this action takes a streamlined, YAML-centric approach to runner pooling and lifecycle management.
-
-## :star: Getting Started
-
-To see how this fits in your Github Actions code - see: [Prerequisites](getting-started/prerequisites.md) :arrow_right: [Quickstart](getting-started/quickstart.md) :arrow_right: [Advanced Configuration](getting-started/advanced-configuration.md).
-
-## :mag: Overview
-
-This action operates using three distinct modes (`provision`, `release`, `refresh`) to control, share, and scale self-hosted EC2 runners directly within GitHub Actions. The diagram below illustrates how these modes fit into your GitHub Actions workflow files:
+This action operates using three distinct modes (`provision`, `release`, `refresh`) that you call from different jobs within your own workflows. This allows you to control, share, and scale runners directly from your YAML files.
 
 ![Modes In Workflows](assets/mode-and-workflows.png)
 
-Here’s an *simplified* overview of each operational mode:
+- The `provision` step is called at the start of a workflow to acquire runners.
+- Your jobs run on the newly provisioned runners.
+- The `release` step is called at the end to return the runners to the pool.
+- A separate, scheduled workflow uses the `refresh` mode to perform system-wide maintenance.
 
-- `provision`: Allocates existing EC2 instances from the shared pool or creates new ones if needed for your active workflow jobs.
-- `release`: Returns the EC2 instances used by a workflow back to the shared pool, making them available for reuse by other jobs.
-- `refresh`: Manages the overall configuration and health of the EC2 runner pool. This mode is designed to be run on a schedule (e.g., via a cron job) to perform ongoing maintenance tasks
+This model provides a powerful, YAML-centric approach to runner management, inspired by tools like `actions-runner-controller` and `terraform-aws-github-runner`.
 
-### :carrot: Detailed Design
+## :star: Getting Started
 
-To see how this works internally - see [how-it-works](architecture/overview.md)
+Ready to try it out? Follow our step-by-step guides to get up and running in minutes.
+
+**[Prerequisites](getting-started/prerequisites.md) :arrow_right: [Quickstart](getting-started/quickstart.md) :arrow_right: [Advanced Configuration](getting-started/advanced-configuration.md)**
+
+## :mag: Digging Deeper
+
+For a more detailed look at the internal design and advanced use cases:
+
+- **:compass: Architectural Overview**: Learn how the different components work together in our [How It Works](architecture/overview.md) guide.
+- **:clipboard: Workflow Examples**: See complete, practical examples for different CI/CD scenarios in our [Examples](examples/basic-workflow.md) section. (See [advanced examples](./examples/advanced-scenarios.md) too)

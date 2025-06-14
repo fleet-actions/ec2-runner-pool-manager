@@ -16,7 +16,6 @@ export const inputs =
 export const parseBaseInputs =
   jest.fn<typeof import('../../src/inputs/base-inputs.js').parseBaseInputs>()
 
-// simply use existing
 export const REFRESH_DEFAULTS = REFRESH_DEFAULTS_ACTUAL
 export const RESOURCE_CLASS_CONFIG_DEFAULT =
   RESOURCE_CLASS_CONFIG_DEFAULT_ACTUAL

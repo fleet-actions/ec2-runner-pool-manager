@@ -3,7 +3,7 @@ import { mock, MockProxy } from 'jest-mock-extended'
 // import { UNSPECIFIED_MAX_RUNTIME_MINUTES } from '../../src/inputs/defaults.js'
 import { UNSPECIFIED_MAX_RUNTIME_MINUTES } from '../../__fixtures__/inputs/fixtures.js'
 import { GeneralMetadataOperations } from '../../src/services/dynamodb/operations/metadata-operations.js'
-import * as core from '../../__fixtures__/core' // Using the existing core mock
+import * as core from '../../__fixtures__/core'
 
 // Mock dependencies
 jest.unstable_mockModule('@actions/core', () => core)

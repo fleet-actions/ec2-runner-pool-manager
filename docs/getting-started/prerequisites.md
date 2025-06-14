@@ -1,4 +1,4 @@
-# Prerequisites :pray:
+# Prerequisites :octicons-checklist-16:
 
 Before [Quickstart](quickstart.md), we need to sort out the inputs for `mode: refresh` in order to initialize everything. Once done, these inputs are used in `.github/workflows/refresh.yml` - like so:
 
@@ -162,7 +162,7 @@ To quickly get started, we will be using an IAM User with credentials stored sec
 
 ## 4. IAM Role & Instance Profile for EC2 Instances
 
-The EC2 instances launched by this action need their own set of permissions to perform tasks (see: [architecture](../todo.md)) These permissions are granted via an IAM Role -> attached to the instances through an EC2 Instance Profile.
+The EC2 instances launched by this action need their own set of permissions to perform tasks (see: [instance agent](../architecture/instance-initialization.md)) These permissions are granted via an IAM Role -> attached to the instances through an EC2 Instance Profile.
 
 To quickly get started, **use the AWS console** to [create an IAM Role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html). When you select “EC2” as the trusted service during role creation, the console automagically generates a [matching EC2 Instance Profile](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) (with the same name). Once the role and its instance profile exist, attach the following policies :arrow_down:
 

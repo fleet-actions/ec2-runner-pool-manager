@@ -10,8 +10,8 @@ theme:
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
-      accent: orange
-      primary: deep orange
+      accent: indigo
+      primary: black
 
       toggle:
         icon: material/brightness-4
@@ -20,7 +20,7 @@ theme:
     # Palette toggle for light mode
     - scheme: default
       primary: indigo
-      accent: pink
+      accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -42,6 +42,8 @@ markdown_extensions:
   - def_list
   - pymdownx.tasklist:
       custom_checkbox: true
+  - pymdownx.tabbed:
+      alternate_style: true
 
 nav:
   - Home: index.md
@@ -53,11 +55,20 @@ nav:
   # - Case Study: case-study.md
   - Architecture:
       - Overview: architecture/overview.md
-      - Refresh: architecture/refresh.md
-      - Provision: architecture/provision.md
+      - Provision:
+          - Overview: architecture/provision/provision.md
+          - Selection:
+              - Pickup Manager: architecture/provision/selection/pickup-manager.md
+              - Claim Workers: architecture/provision/selection/claim-workers.md
+          - Creation:
+              - Fleet Creation: architecture/provision/creation/fleet-creation.md
+              - Fleet Validation: architecture/provision/creation/fleet-validation.md
+          - Post Provision: architecture/provision/post-provision.md
       - Release: architecture/release.md
-      - Instance: architecture/instance.md
+      - Refresh: architecture/refresh.md
+      - Others:
+          - Instance Agent: architecture/instance-initialization.md
+          - Resource Pool: architecture/resource-pool.md
   - Examples:
       - Basic Workflow: examples/basic-workflow.md
       - Advanced Scenarios: examples/advanced-scenarios.md
-  - FAQ: faq.md

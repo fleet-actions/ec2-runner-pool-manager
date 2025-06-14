@@ -5,7 +5,7 @@
 
 ## Runner Logs
 
-Looking for specific signals. As per the [architecture](../todo.md), the Github Runners and Instances communicate with each other via various "signals". You can see the state of specific instances via very specific signals.
+Looking for specific signals. As per the [architecture](../architecture/overview.md), the Github Runners and Instances communicate with each other via various "signals". You can see the state of specific instances via very specific signals.
 
 ## Accessing an instance
 

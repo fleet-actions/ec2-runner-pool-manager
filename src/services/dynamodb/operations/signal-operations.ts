@@ -48,8 +48,6 @@ export class WorkerSignalOperations extends BasicValueOperations<WorkerSignalVal
     super(WorkerSignalOperations.ENTITY_TYPE, null, client)
   }
 
-  // ... existing code ...
-
   // Checks if a single instance has completed with the expected signal
   async singleCompletedOnSignal(
     id: string,

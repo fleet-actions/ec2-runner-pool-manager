@@ -2,10 +2,10 @@
 
 ## 1. Introduction
 
-This document explores the additional optional inputs given opened up to the controlplane via inputs to `provision` and `refresh` in order to give the operator the ability to better control the lifecycles of the instances beyond initial defaults. See the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) for the initial setup guides.
+This document explores the additional optional inputs given opened up to the controlplane. See the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) for the initial setup guides.
 
 !!! note
-    Hopefully this page can stand by itself, but feel free to read through the [Architecture](../todo.md) to see this from a wider context.
+    Hopefully this page can stand by itself, but feel free to read through the [Architecture](../architecture/overview.md) to see this from a wider context.
 
 ## 2. Fine-Tuning Runner Lifecycle and Resource Management
 
@@ -264,7 +264,6 @@ At a minimum, the role given to the instance needs to be able to self-terminate 
 
 ??? tip "Add `AmazonSSMManagedInstanceCore` - connect to your self-hosted runners ⭐"
     [Session Manager](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html) is my favourite way to connect to instances as they do not require bastion hosts or managing SSH keys. I recommend expanding your EC2 instance role with AWS Managed Policy [AmazonSSMManagedInstanceCore](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html). When used with Machine Images built on Amazon Linux 2023 and Ubuntu - Session Manager should work out of the box as the [SSM Agent is pre-installed](https://docs.aws.amazon.com/systems-manager/latest/userguide/manually-install-ssm-agent-linux.html) 🤩
-
 
 ### Network Security
 

@@ -1,104 +1,70 @@
-# Refresh Process: System Maintenance and Configuration
+# Refresh: System State Reconciliation
 
-The Refresh process is a critical background component of the EC2 runner pool manager. Unlike Provision and Release modes, which are directly tied to individual workflow lifecycles, Refresh operates periodically (e.g., via a scheduled CRON job) to perform essential system-wide maintenance, configuration updates, and cleanup tasks. Its primary goal is to ensure the health, integrity, and optimal configuration of the entire runner ecosystem.
+The Refresh process is a periodic, idempotent background operation, executed by a scheduled GitHub Actions workflow (e.g., via `cron`), that acts as the system's central reconciler. Unlike the event-driven `provision` and `release` modes which are tied to workflows, `refresh` operates on the entire system to ensure the live infrastructure and configuration in AWS align with a centrally defined *desired state*.
 
-## Core Responsibilities & Orchestration
+Its core purpose is to continuously converge the *actual state* of the system (what exists in AWS and DynamoDB) with the *desired state* (your input configurations).
 
-The `refresh` function in `src/refresh/index.ts` orchestrates a sequence of operations to manage various aspects of the system. These can be broadly categorized into: initial infrastructure and configuration setup, shared resource management, and instance lifecycle enforcement.
+## The Reconciliation Model: Desired vs. Actual State
 
-The typical sequence of operations during a refresh cycle includes:
+The entire Refresh process is built on this model:
 
-1. **DynamoDB Table Management (`manageTable`)**:
-    * Ensures the primary DynamoDB table used by the application is correctly set up and accessible. This might involve validation or, on a very first run, initial schema setup if not handled by external IaC. (Details depend on the implementation within `manage-table/index.js`).
+* **Desired State**: The configuration you provide as input. This includes the AMI for runners, resource class definitions, maximum instance lifetimes, and approved subnets. This is your "source of truth."
+* **Actual State**: The resources and records that currently exist, such as EC2 Launch Templates, SQS queues, and instance state records in DynamoDB.
+* **Reconciliation**: The Refresh process is the engine that compares the desired state to the actual state and makes the necessary API calls to AWS and DynamoDB to bring them into alignment.
 
-2. **Core Metadata Configuration (via `manage-idempotent-states.ts`)**:
-    * **`manageIdleTime`**: Updates the configured idle time (seconds an instance can stay in the `idle` state before being considered for termination) in DynamoDB.
-    * **`manageSubnetIds`**: Updates the list of approved subnet IDs (for EC2 instance placement) in DynamoDB.
-    * **`manageMaxRuntimeMin`**: Updates the maximum runtime (minutes an instance can exist, regardless of state, before forced termination) in DynamoDB.
+## Core Reconciliation Tasks
 
-3. **GitHub Registration Token Management (`manageRegistrationToken` from `manage-rt/`)**:
-    * Manages the lifecycle of the GitHub Actions registration token used by new instances to register themselves.
-    * It uses a provided GitHub Personal Access Token (PAT) to generate a new, short-lived registration token.
-    * This token is then stored securely (likely in DynamoDB) for bootstrapping instances to fetch.
-    * The token is refreshed based on the `githubRegTokenRefreshMins` input, ensuring a rotation policy.
+The Refresh process performs two primary architectural functions:
 
-4. **EC2 Launch Template Management (`manageLT` from `manage-lt/`)**:
-    * Manages the EC2 Launch Template(s) used for provisioning new runner instances.
-    * This includes configuring details like the AMI ID, IAM instance profile, security group IDs, and the user-data script.
-    * The Launch Template details (like its ID or version) are stored in DynamoDB for the Provision mode to use.
+### 1. Converging Infrastructure and Configuration
 
-5. **Resource Class Configuration & SQS Queue Management (`manageResourceClassConfiguration` from `manage-idempotent-states.ts`)**:
-    * Takes the defined resource class configurations (which specify instance types, CPU, memory, etc.) as input.
-    * For each resource class, it ensures the corresponding SQS queue (which acts as the pool of idle instances for that class) exists. If not, it creates the SQS queue.
-    * The function then populates the resource class configuration data with the actual SQS Queue URLs.
-    * This enriched resource class configuration (including queue URLs) is then stored in DynamoDB. This is crucial for both Provision (to find idle instances) and Release (to return instances to the correct pool).
+This task ensures that the foundational AWS resources and operational parameters match the desired state defined in your configuration. Each row in the table below represents an independent reconciliation task performed during the `refresh` run.
 
-6. **Instance Lifecycle Enforcement & Termination (`manageTerminations`)**:
-    * This is a key cleanup task focused on enforcing instance lifecycle policies.
-    * It scans DynamoDB for instances in `idle`, `claimed`, or `running` states that have exceeded their defined `threshold` (i.e., they are expired).
-    * For these expired instances, it attempts to transition their state to `terminated` in DynamoDB.
-    * Successfully transitioned instances are then actually terminated in EC2 via AWS API calls.
-    * Finally, it cleans up associated artifacts (like heartbeat records and worker signals) from DynamoDB for the terminated instances.
+| Component | Desired State (Input) | Reconciliation Action | Architectural Purpose |
+| :--- | :--- | :--- | :--- |
+| 🚀 **EC2 Launch Template** | AMI ID, IAM Profile, User Data script, Security Groups, etc. | Creates or updates the EC2 Launch Template. Stores its ID in DynamoDB. | Decouples instance `provisioning` from the details of instance configuration, allowing for easy AMI or script updates. |
+| 📥 **Resource Pools** | A list of `resourceClass` definitions. | For each `resourceClass`, it ensures a corresponding SQS queue exists. Stores the queue URLs in the configuration record in DynamoDB. | Provides a discoverable, central endpoint for the idle runner pools used by the `provision` and `release` processes. |
+| 🔧 **Operational Parameters** | Values for `max-idle-time`, `subnet-ids`, etc. | Updates the corresponding key-value records in DynamoDB. | Allows for dynamic, centralized tuning of the system's operational behavior without requiring a code deployment. |
+| 🔑 **GitHub Auth** | A GitHub PAT with `repo` scope. | Periodically uses the PAT to generate a new, short-lived GitHub Actions registration token. Stores this token in DynamoDB. | Ensures new instances have ready access to a valid short-lived credential on registration. |
 
-## Detailed Breakdown of Key Operations
+### 2. Enforcing Instance Lifetimes (`threshold`)
 
-### A. Infrastructure and Metadata Setup
+This task acts as the system's garbage collector, enforcing the defined lifecycle rules to prevent orphaned or expired resources.
 
-The initial part of the Refresh cycle focuses on ensuring the foundational AWS resources and core operational parameters are correctly configured in DynamoDB.
+* **Identifying Expired Instances**: The primary policy is the `threshold` timestamp on each instance record in DynamoDB. The reconciler scans for any `idle`, `claimed`, or `running` instances that have lived past their expiration time.
+* **Artifact Cleanup**: After confirming termination, it removes associated data for the terminated instances (like heartbeat and worker signal records) from DynamoDB to keep the state store clean.
+* **Resilient Termination Process**: To prevent race conditions (e.g., trying to terminate an instance that was just re-claimed), it uses a safe, two-phase commit process:
+    1. **Phase 1: Mark for Termination (in DynamoDB)**: It first attempts a conditional update in DynamoDB to change the instance's state to `terminated`. This "locks" the instance from being used by other processes.
+    2. **Phase 2: Terminate Instance (in EC2)**: Only after an instance is successfully marked as `terminated` in the database does the reconciler issue the `TerminateInstances` command to the AWS EC2 API.
 
-* **DynamoDB Table (`manageTable`)**: Confirms the primary application table is operational.
-* **Core Parameters (`manageIdleTime`, `manageSubnetIds`, `manageMaxRuntimeMin`)**: These functions from `manage-idempotent-states.ts` take input values (e.g., from environment variables or deployment configurations) and update corresponding items in a metadata section of DynamoDB. This allows dynamic adjustment of these key operational settings without code changes. For example, `manageIdleTime` ensures the system knows how long an instance can remain idle before `manageTerminations` considers it expired.
-* **Resource Class & SQS Queues (`manageResourceClassConfiguration`)**:
-  * **Input**: Definitions of various resource classes (e.g., `small-linux`, `large-windows`), potentially including desired instance types, CPU/memory, etc.
-  * **SQS Queue Creation**: For each defined resource class, this function checks if an SQS queue exists. If not, it creates one, tagging it appropriately (e.g., with the repository and resource class name). This queue will hold messages representing idle instances of that class.
+!!! note "Sequence Diagram: Resilient Termination"
+    ```mermaid
+        sequenceDiagram
+            participant Reconciler
+            participant DDB as "DynamoDB"
+            participant EC2
 
-        ```typescript
-        // Conceptual: sqsRCOps.populateWithQueueUrls in manageResourceClassConfiguration
-        // For each resource class in rccInput:
-        //   queueName = generateQueueName(mode, githubRepoName, githubRepoOwner, resourceClassName)
-        //   queueUrl = sqs.createQueue(queueName)
-        //   newRCC[resourceClassName].queueUrl = queueUrl 
-        ```
+            Reconciler->>+DDB: Find instances where state is 'idle'/'running'<br>and threshold is expired
+            DDB-->>-Reconciler: Return list of expired instances
 
-  * **DynamoDB Storage**: The complete resource class configuration, now including the SQS queue URLs, is saved to DynamoDB. This allows other components (Provision, Release) to discover and use the correct queues.
+            loop For each expired instance
+                Reconciler->>+DDB: Conditionally update state to 'terminated'
+                DDB-->>-Reconciler: Update OK
+            end
+            Note right of Reconciler: Now we have a locked list<br>of instances to terminate.
 
-### B. GitHub Registration Token Management (`manage-rt/`)
+            Reconciler->>+EC2: Terminate instances by ID
+            EC2-->>-Reconciler: Termination initiated
 
-Instances need a token to register with GitHub Actions. To avoid using long-lived PATs directly on instances, Refresh manages this:
+            Reconciler->>+DDB: Delete associated artifacts<br>(heartbeats, worker signals)
+            DDB-->>-Reconciler: Cleanup OK
+    ```
 
-* **Input**: A GitHub PAT (with appropriate permissions) and a refresh interval (`githubRegTokenRefreshMins`).
-* **Action**: The `manageRegistrationToken` function uses the GitHub service to request a short-lived registration token from the GitHub API for the specified repository.
-* **Storage**: This newly generated token is written to a specific location in DynamoDB (e.g., a metadata item). Bootstrapping instances will fetch this token (as seen in `user-data.md` flow) to complete their GitHub Actions runner registration.
-* **Rotation**: The token is refreshed/rotated based on the `githubRegTokenRefreshMins` setting to enhance security.
+## Centralized Config and Decoupling
 
-### C. EC2 Launch Template Management (`manage-lt/`)
+By framing the `refresh` process as a reconciliation loop rather than a simple script, we gain general decoupling:
 
-Standardizing instance creation is achieved via EC2 Launch Templates:
+* **Centralized Configuration**: All major changes to the runner environment (like updating the AMI) can be done by changing a single configuration value and letting the reconciler handle the rollout.
+* **Decoupling of Concerns**: The `provision` logic doesn't need to know how to build an instance; it just needs to know which Launch Template to use. The `refresh` process handles the "how," keeping concerns cleanly separated.
 
-* **Inputs**: Configuration for the launch template, including AMI ID, IAM instance profile, security group IDs, and the user-data script (which bootstraps the instance).
-* **Action**: The `manageLT` function interacts with the EC2 service to create a new version of the launch template or update an existing one with the provided configuration.
-* **Storage**: The ID and/or version of the active launch template is stored in DynamoDB. The Provision mode reads this when it needs to create new EC2 instances, ensuring all new instances are launched with the correct, centrally-managed configuration.
-
-### D. Instance Termination (`manage-terminations.ts`)
-
-This is the primary cleanup mechanism for enforcing instance lifecycle policies:
-
-1. **Identify Expired Instances**:
-    * `instanceOperations.getExpiredInstancesByStates(['idle', 'claimed', 'running'])` queries DynamoDB for instances in these active/intermediate states whose `threshold` timestamp has passed.
-2. **Attempt State Transition to `terminated`**:
-    * `performTerminationTransitions` iterates through the identified expired instances.
-    * For each, it attempts an atomic conditional update in DynamoDB to change its `state` to `terminated`, clear its `runId`, and nullify its `threshold`. This ensures that an instance is only marked for EC2 termination if its state transition in the database is successful.
-    * This step produces lists of `successfulItems` (state successfully changed to `terminated`) and `unsuccessfulItems` (state transition failed, e.g., due to a concurrent update).
-3. **Actual EC2 Instance Termination**:
-    * `sendTerminationSignals` takes the list of `successfulItems` (those now marked as `terminated` in DynamoDB).
-    * It calls `ec2Ops.terminateInstances(ids)` to command AWS EC2 to terminate these instances.
-    * Includes error handling to attempt individual terminations if batch termination fails.
-4. **Artifact Cleanup**:
-    * After signaling termination, `performArtifactCleanup` removes associated data for the terminated instances from DynamoDB, such as their heartbeat records (`heartbeatOperations.deleteItem`) and worker signal records (`workerSignalOperations.deleteItem`). This keeps the database clean.
-
-## Idempotency and Reliability
-
-* **Configuration Updates**: Functions within `manage-idempotent-states.ts` (like `manageIdleTime`, `manageResourceClassConfiguration`) are designed to be idempotent. They typically fetch the current value and then update it, meaning they can be run repeatedly with the same input without causing unintended side effects. `manageResourceClassConfiguration` will create SQS queues if they don't exist but won't fail if they already do (though it will update the DynamoDB record with current queue URLs).
-* **Terminations**: The termination process is designed for robustness. By first transitioning state in DynamoDB conditionally, it reduces the chances of attempting to terminate an instance that has since been re-claimed or has changed state. Logging (`logInstanceTerminationDiagnostics`) provides visibility into successful and failed transitions.
-
-The Refresh process, through these orchestrated steps, ensures that the runner pool manager remains healthy, configured according to the desired state, and does not accumulate orphaned or expired resources.
+:sunny:

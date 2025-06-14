@@ -10,8 +10,8 @@ theme:
   palette:
     # Palette toggle for dark mode (default)
     - scheme: slate
-      # accent: orange
-      # primary: deep orange
+      accent: indigo
+      primary: black
 
       toggle:
         icon: material/brightness-4
@@ -20,7 +20,7 @@ theme:
     # Palette toggle for light mode
     - scheme: default
       primary: indigo
-      accent: pink
+      accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode

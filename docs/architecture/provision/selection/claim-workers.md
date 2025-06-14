@@ -7,7 +7,7 @@ The core responsibilities are:
 * **Health Verification**: Check the instance's heartbeat in DynamoDB to ensure it's responsive.
 * **Registration Check**: Wait for a signal from the instance's agent confirming it's registered and ready for work.
 
-If an instance fails any of these checks, the worker discards it—terminating it if necessary—and attempts to claim a new one from the pool. This ensures that only fully validated runners are provisioned.
+If an instance fails any of these checks, the worker discards it-terminating it if necessary-and attempts to claim a new one from the pool. This ensures that only fully validated runners are provisioned.
 
 <!-- :sun: -->
 

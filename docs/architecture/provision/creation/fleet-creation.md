@@ -1,6 +1,6 @@
 # Fleet Creation
 
-## AWS API Used — `CreateFleet (type =instant)`
+## AWS API Used - `CreateFleet (type =instant)`
 
 Provision issues a single [`CreateFleet` call with Type=instant](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-ec2-fleet.html), which tells AWS to indicate to us if at this moment in time, there's enough in their capacity pools to fulfill our request or or fail fast. This keeps the controlplane responsive.
 

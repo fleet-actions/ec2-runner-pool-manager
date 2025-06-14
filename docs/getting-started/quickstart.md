@@ -8,12 +8,7 @@ For details on fine-tuning timeouts and other settings, please refer to the [Adv
 
 ## Let's get started! (follow in order)
 
-1. Create the `refresh.yml` file (see below) with inputs the pre-requisites:
-    - AMI Security Group & Subnets
-    - EC2 AMI
-    - EC2 instance profile & IAM permissions for github runner.
-    - Github PAT
-    - Then push to create the refresh workflow.
+1. Create the `refresh.yml` file (see below) with inputs from [Prerequisites](./prerequisites.md).
 2. Manually run the refresh workflow with [workflow dispatch](https://docs.github.com/en/actions/.managing-workflow-runs-and-deployments/managing-workflow-runs/manually-running-a-workflow) (*or wait for the cron to execute*)
 3. If refresh is OK -> create `ci.yml` and push :fingers_crossed:
 

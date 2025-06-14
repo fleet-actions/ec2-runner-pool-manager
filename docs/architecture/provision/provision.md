@@ -121,7 +121,7 @@ See linked pages for more detail
 
 ## Post-Provisioning Actions
 
-The **Post-Provision** component is the final gate before the workflow can start running jobs (on success) — or before the control-plane rolls everything back (on failure).  
+The **Post-Provision** component is the final gate before the workflow can start running jobs (on success) - or before the control-plane rolls everything back (on failure).  
 
 See linked page for more detail:
 

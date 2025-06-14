@@ -2,10 +2,10 @@
 
 ## 1. Introduction
 
-This document explores the additional optional inputs given opened up to the controlplane via inputs to `provision` and `refresh` in order to give the operator the ability to better control the lifecycles of the instances beyond initial defaults. See the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) for the initial setup guides.
+This document explores the additional optional inputs given opened up to the controlplane. See the [Prerequisites](./prerequisites.md) and [Quickstart](./quickstart.md) for the initial setup guides.
 
 !!! note
-    Hopefully this page can stand by itself, but feel free to read through the [Architecture](../todo.md) to see this from a wider context.
+    Hopefully this page can stand by itself, but feel free to read through the [Architecture](../architecture/overview.md) to see this from a wider context.
 
 ## 2. Fine-Tuning Runner Lifecycle and Resource Management
 

@@ -1,4 +1,4 @@
-# Prerequisites :pray:
+# Prerequisites :octicons-checklist-16:
 
 Before [Quickstart](quickstart.md), we need to sort out the inputs for `mode: refresh` in order to initialize everything. Once done, these inputs are used in `.github/workflows/refresh.yml` - like so:
 

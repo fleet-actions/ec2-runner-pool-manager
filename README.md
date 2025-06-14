@@ -2,29 +2,44 @@
 
 ![Sample Workflow](./docs/assets/sample-workflow-light.png)
 
-This GitHub Action enables you to provision, scale, and reuse a pool of self-hosted EC2 runners directly within your GitHub Actions workflows, all with a simple, embedded control plane.
+This GitHub Action enables you to provision, scale, and reuse a pool of
+self-hosted EC2 runners directly within your GitHub Actions workflows, all with
+a simple, embedded control plane.
 
 ## ⚡️ Motivation
 
-This project was born from a desire to simplify the management of self-hosted runners. The goal was to dynamically provision, pool, and reuse runners directly within GitHub Actions, avoiding the complexities of:
+This project was born from a desire to simplify the management of self-hosted
+runners. The goal was to dynamically provision, pool, and reuse runners directly
+within GitHub Actions, avoiding the complexities of:
 
 - Deploying and managing separate control planes (e.g., Kubernetes, Terraform).
 - Configuring webhooks and serverless runtimes.
-- Sifting through logs in external cloud providers instead of keeping them in one place.
+- Sifting through logs in external cloud providers instead of keeping them in
+  one place.
 
-Inspired by powerful tools like `actions-runner-controller` and `terraform-aws-github-runner`, this action provides a streamlined, YAML-centric approach to runner lifecycle management.
+Inspired by powerful tools like `actions-runner-controller` and
+`terraform-aws-github-runner`, this action provides a streamlined, YAML-centric
+approach to runner lifecycle management.
 
 ## ✨ Features
 
-- **Embedded Control Plane**: No separate infrastructure to manage. The logic lives entirely within the action.
-- **Resource Pooling & Reuse**: Minimize cold-starts and costs by reusing warm, idle runners from a shared pool.
-- **Simple Targeting**: Use a single, consistent `runs-on: ${{ github.run_id }}` syntax for all your jobs.
-- **Integrated Logging**: Runner lifecycle logs (creation, selection, termination) appear directly in your workflow logs.
-- **Declarative Lifecycles**: Easily define how long runners should live when idle or actively running.
+- **Embedded Control Plane**: No separate infrastructure to manage. The logic
+  lives entirely within the action.
+- **Resource Pooling & Reuse**: Minimize cold-starts and costs by reusing warm,
+  idle runners from a shared pool.
+- **Simple Targeting**: Use a single, consistent `runs-on: ${{ github.run_id }}`
+  syntax for all your jobs.
+- **Integrated Logging**: Runner lifecycle logs (creation, selection,
+  termination) appear directly in your workflow logs.
+- **Declarative Lifecycles**: Easily define how long runners should live when
+  idle or actively running.
 
 ## 🔍 How It Works
 
-The core architectural principle is that the control plane is **embedded within the GitHub Action itself**. Instead of a separate, continuously running service, the action's different modes (`provision`, `release`, `refresh`) are called directly from your workflows to manage the runner lifecycle.
+The core architectural principle is that the control plane is **embedded within
+the GitHub Action itself**. Instead of a separate, continuously running service,
+the action's different modes (`provision`, `release`, `refresh`) are called
+directly from your workflows to manage the runner lifecycle.
 
 ![Simplified Architecture](./docs/assets/simplified-architecture.png)
 
@@ -32,14 +47,16 @@ The core architectural principle is that the control plane is **embedded within 
 
 ## 📖 Full Documentation
 
-**For a complete guide, including installation, advanced configuration, and architectural details, the github pages site.**
+**For a complete guide, including installation, advanced configuration, and
+architectural details, the github pages site.**
 
-> We recommend starting with the **[Quickstart Guide](https://your-docs-url/getting-started/quickstart)**.
-
+> We recommend starting with the
+> **[Quickstart Guide](https://your-docs-url/getting-started/quickstart)**.
 
 ## 🚀 Quickstart Example
 
-Here’s a taste of how you can provision and release runners within a single workflow.
+Here’s a taste of how you can provision and release runners within a single
+workflow.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -67,7 +84,8 @@ jobs:
     needs: provision_runners
     runs-on: ${{ github.run_id }} # Target the provisioned runners
     steps:
-      - run: echo "This job is running on a dynamically provisioned EC2 instance!"
+      - run:
+          echo "This job is running on a dynamically provisioned EC2 instance!"
 
   release_runners:
     name: Release Runners
@@ -87,7 +105,8 @@ jobs:
 
 ## 📋 Inputs & Permissions
 
-A comprehensive list of all action inputs and the required IAM policies are available in our full documentation.
+A comprehensive list of all action inputs and the required IAM policies are
+available in our full documentation.
 
 - [**Action Inputs Reference**](https://your-docs-url/getting-started/advanced-configuration)
 - [**IAM Permissions Guide**](https://your-docs-url/getting-started/prerequisites)

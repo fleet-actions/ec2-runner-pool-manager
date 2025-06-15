@@ -1,4 +1,5 @@
-name: ci 
+# https://squidfunk.github.io/mkdocs-material/publishing-your-site/#with-github-actions-material-for-mkdocs
+name: mkdocs deployment
 on:
   push:
     branches:

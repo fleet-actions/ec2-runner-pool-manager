@@ -1,5 +1,5 @@
 site_name: Fleet Actions
-site_url: https://mydomain.org/mysite
+site_url: https://fleet-actions.github.io/ec2-runner-pool-manager/
 theme:
   name: material
   icon:
@@ -55,6 +55,7 @@ nav:
   # - Case Study: case-study.md
   - Architecture:
       - Overview: architecture/overview.md
+      - Lifecycle Walkthrough: architecture/lifecycle-walkthrough.md
       - Provision:
           - Overview: architecture/provision/provision.md
           - Selection:

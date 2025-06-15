@@ -2,9 +2,8 @@
 
 ![Sample Workflow](./docs/assets/sample-workflow-light.png)
 
-This GitHub Action enables you to provision, scale, and reuse a pool of
-self-hosted EC2 runners directly within your GitHub Actions workflows, all with
-a simple, embedded control plane.
+Provision, scale, and reuse a pool of self-hosted EC2 runners directly within
+your GitHub Actions workflows, all with a simple, embedded control plane.
 
 ## ⚡️ Motivation
 
@@ -31,8 +30,8 @@ approach to runner lifecycle management.
   syntax for all your jobs.
 - **Integrated Logging**: Runner lifecycle logs (creation, selection,
   termination) appear directly in your workflow logs.
-- **Declarative Lifecycles**: Easily define how long runners should live when
-  idle or actively running.
+- **Declarative Lifecycles**: Define how long runners should live when idle or
+  actively running.
 
 ## 🔍 How It Works
 
@@ -48,10 +47,11 @@ directly from your workflows to manage the runner lifecycle.
 ## 📖 Full Documentation
 
 **For a complete guide, including installation, advanced configuration, and
-architectural details, the github pages site.**
+architectural details, the
+[Github Pages Site](https://fleet-actions.github.io/ec2-runner-pool-manager/)**
 
-> We recommend starting with the
-> **[Quickstart Guide](https://your-docs-url/getting-started/quickstart)**.
+> To get to it, start with the:
+> **[Quickstart Guide](https://fleet-actions.github.io/ec2-runner-pool-manager/#getting-started)**.
 
 ## 🚀 Quickstart Example
 
@@ -108,8 +108,8 @@ jobs:
 A comprehensive list of all action inputs and the required IAM policies are
 available in our full documentation.
 
-- [**Action Inputs Reference**](https://your-docs-url/getting-started/advanced-configuration)
-- [**IAM Permissions Guide**](https://your-docs-url/getting-started/prerequisites)
+- [**Action Inputs Reference**](https://fleet-actions.github.io/ec2-runner-pool-manager/getting-started/advanced-configuration/)
+- [**IAM Permissions Guide**](https://fleet-actions.github.io/ec2-runner-pool-manager/getting-started/prerequisites/#3-iam-user-for-github-actions-workflow)
 
 ---
 

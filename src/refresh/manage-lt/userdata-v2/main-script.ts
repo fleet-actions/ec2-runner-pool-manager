@@ -12,12 +12,6 @@ import { blockRegistration, blockInvalidation } from './blockers.js'
 import { heartbeatScript, selfTerminationScript } from './background-scripts.js'
 import { tokenlessDeregistration } from './deregistration.js'
 
-// in this file, we will take the current (user-inputted) userdata and append
-// .metadata query
-// .ddb state update (ud-completed)
-// .gh registration
-// .ddb state update (ud-gh-completed)
-
 // DDB cli examples: https://docs.aws.amazon.com/cli/v1/userguide/cli_dynamodb_code_examples.html
 // CLI examples: https://github.com/machulav/ec2-github-runner/blob/main/src/aws.js
 
@@ -27,11 +21,10 @@ import { tokenlessDeregistration } from './deregistration.js'
 
 export function addBuiltInScript(
   tableName: string,
+  actionsRunnerVersion: string,
   context: GitHubContext,
   input: LTDatav2
 ): LTDatav2 {
-  const RUNNER_VERSION = '2.323.0' // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
-
   // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
   const WRAPPER_SCRIPT = `#!/bin/bash
 
@@ -64,7 +57,7 @@ echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
 ${userScript('user-script.sh', input.userData)}
-${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
+${downloadRunnerArtifactScript('download-runner-artifact.sh', actionsRunnerVersion)}
 
 ### SOME INITIALIZATION ###
 if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
@@ -172,6 +165,7 @@ export function addUDWithBaseAndHash(ltInput: LTDatav2): LTDatav2 {
 
 export interface ComposeUserDataInput {
   tableName: string
+  actionsRunnerVersion: string
   context: GitHubContext
   ltInput: LTDatav2
 }
@@ -179,7 +173,12 @@ export interface ComposeUserDataInput {
 export function composeUserData(input: ComposeUserDataInput) {
   // Append UD
   core.info('appending UD...')
-  let ltInput = addBuiltInScript(input.tableName, input.context, input.ltInput)
+  let ltInput = addBuiltInScript(
+    input.tableName,
+    input.actionsRunnerVersion,
+    input.context,
+    input.ltInput
+  )
   // Add on hash/base64
   core.info('adding UD base64 and UD hash...')
   ltInput = addUDWithBaseAndHash(ltInput)

@@ -20,6 +20,7 @@ const { LaunchTemplateManager } = await import('../../../src/refresh/manage-lt')
 
 describe('LaunchTemplateManager', () => {
   const tableName = 'test-table'
+  const actionsRunnerVersion = '1.1.1.1'
   const context: GitHubContext = { repo: 'repo-name', owner: 'owner-name' }
   let ec2Ops: MockProxy<EC2LTOps>
   let ddbOps: MockProxy<DDBLTOps>
@@ -37,7 +38,13 @@ describe('LaunchTemplateManager', () => {
   beforeEach(() => {
     ec2Ops = mock<EC2LTOps>()
     ddbOps = mock<DDBLTOps>()
-    manager = new LaunchTemplateManager(tableName, context, ec2Ops, ddbOps)
+    manager = new LaunchTemplateManager(
+      tableName,
+      context,
+      actionsRunnerVersion,
+      ec2Ops,
+      ddbOps
+    )
 
     // Set up default mocks with correct response structure
     ec2Ops.createLaunchTemplate.mockResolvedValue({
@@ -82,6 +89,7 @@ describe('LaunchTemplateManager', () => {
       const ltManager = new LaunchTemplateManager(
         tableName,
         context,
+        actionsRunnerVersion,
         ec2Ops,
         ddbOps,
         'custom-lt-name'

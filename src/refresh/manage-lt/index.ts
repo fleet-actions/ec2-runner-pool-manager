@@ -10,6 +10,7 @@ export class LaunchTemplateManager {
   constructor(
     private tableName: string,
     private githubContext: GitHubContext,
+    private actionsRunnerVersion: string,
     private ec2Ops: ec2ltOps,
     private ddbOps: ddbltOps,
     private ltName = 'ci-launch-template'
@@ -26,6 +27,7 @@ export class LaunchTemplateManager {
     ltInput = populateLTName(ltInput, this.ltName)
     ltInput = composeUserData({
       tableName: this.tableName,
+      actionsRunnerVersion: this.actionsRunnerVersion,
       context: this.githubContext,
       ltInput
     })
@@ -93,6 +95,7 @@ export class LaunchTemplateManager {
 export async function manageLT(
   tableName: string,
   githubContext: GitHubContext,
+  actionsRunnerVersion: string,
   data: LTDatav2,
   ec2ltOps: ec2ltOps,
   ddbltOps: ddbltOps
@@ -100,6 +103,7 @@ export async function manageLT(
   const manager = new LaunchTemplateManager(
     tableName,
     githubContext,
+    actionsRunnerVersion,
     ec2ltOps,
     ddbltOps
   )

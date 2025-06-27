@@ -44,7 +44,8 @@ export async function refresh(inputs: RefreshInputs): Promise<void> {
     ami,
     iamInstanceProfile,
     securityGroupIds,
-    preRunnerScript
+    preRunnerScript,
+    actionsRunnerVersion
   } = inputs
 
   const ec2Service = createEC2Service(awsRegion)
@@ -73,6 +74,7 @@ export async function refresh(inputs: RefreshInputs): Promise<void> {
   await manageLT(
     tableName,
     { owner: githubRepoOwner, repo: githubRepoName },
+    actionsRunnerVersion,
     {
       ami,
       iamInstanceProfile,

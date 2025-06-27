@@ -22,7 +22,12 @@ export function parseRefreshInputs(): RefreshInputs {
     idleTimeSec: getNumber('idle-time-sec', false, REFRESH_DEFAULTS),
     maxRuntimeMin: getNumber('max-runtime-min', false, REFRESH_DEFAULTS),
     preRunnerScript: getString('pre-runner-script', false, REFRESH_DEFAULTS),
-    resourceClassConfig: getResourceClassConfig()
+    resourceClassConfig: getResourceClassConfig(),
+    actionsRunnerVersion: getString(
+      'actions-runner-version',
+      false,
+      REFRESH_DEFAULTS
+    )
   }
 }
 

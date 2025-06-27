@@ -115,12 +115,19 @@ export async function fleetCreation(
   )
 
   if (result.status === 'success') {
-    core.info('creation is a success, registering creation on db...')
+    core.info('creation is a success...')
 
     const now = Date.now()
     const millisecondsToAdd = 10 * 60 * 1000 // 🔍 s to ms
     const threshold = new Date(now + millisecondsToAdd).toISOString()
 
+    core.info('assigning proper message thresholds...')
+    // mutate result with proper thresholds
+    result.instances.forEach((instance) => {
+      instance.threshold = threshold
+    })
+
+    core.info('registering against database...')
     const values = await Promise.all(
       result.instances.map((instance) => {
         return input.ddbOps.instanceCreatedRegistration({

@@ -36,6 +36,7 @@ describe('releaseWorker', () => {
   const sampleCpu = 4
   const sampleMmem = 16384
   const sameUsageClass: UsageClassType = 'on-demand'
+  const sampleThreshold = new Date().toISOString()
 
   const sampleResourceClassConfig: ResourceClassConfig = {
     [sampleResourceClass]: {
@@ -54,7 +55,7 @@ describe('releaseWorker', () => {
     entityType: 'INSTANCE',
     updatedAt: new Date().toISOString(),
     state: 'running',
-    threshold: new Date().toISOString(),
+    threshold: sampleThreshold,
     runId: sampleRunId,
     usageClass: sameUsageClass
   }
@@ -101,7 +102,8 @@ describe('releaseWorker', () => {
       instanceType: sampleInstanceType,
       cpu: sampleCpu,
       mmem: sampleMmem,
-      usageClass: sameUsageClass
+      usageClass: sameUsageClass,
+      threshold: sampleThreshold
     }
     expect(mockSqsOps.sendResourceToPool).toHaveBeenCalledWith(
       expectedInstanceMessage,

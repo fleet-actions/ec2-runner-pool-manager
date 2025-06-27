@@ -7,7 +7,8 @@ export const GenericInstance: Instance = {
   resourceClass: 'medium',
   cpu: 4,
   mmem: 2048,
-  usageClass: 'on-demand'
+  usageClass: 'on-demand',
+  threshold: new Date(Date.now() + 1000 * 3600).toISOString() // 1 hr future
 }
 
 export const GenericInstanceMessage: InstanceMessage = GenericInstance

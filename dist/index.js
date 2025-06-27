@@ -42095,7 +42095,7 @@ class PoolPickUpManager {
     // - any pattern on allowedInstanceTypes (requeue)
     classifyMessage(input) {
         // all attributes used apart from id
-        const { cpu, mmem, resourceClass, instanceType, usageClass } = input;
+        const { cpu, mmem, resourceClass, instanceType, usageClass, threshold } = input;
         // unlikely to proc, but if message has invalid rc from pool its been put in, then invalid
         const rc = this.resourceClassConfig[resourceClass];
         if (!rc) {
@@ -42111,6 +42111,14 @@ class PoolPickUpManager {
                 statusMessage: cpu !== rc.cpu
                     ? `Picked up cpu (${cpu}) is not equal to spec (${rc.cpu})`
                     : `Picked up mmem (${mmem}) is too low for spec (${rc.mmem})`
+            };
+        }
+        // If current date is more recent, then message has expired
+        const currentDate = new Date();
+        if (new Date(threshold) < currentDate) {
+            return {
+                status: 'delete',
+                statusMessage: `Message has expired. Message: ${threshold} Current: ${currentDate}`
             };
         }
         // NOTE: if fails by filter, this needs to proc a requeue
@@ -42329,7 +42337,8 @@ function processFleetResponse(input) {
                 resourceClass,
                 cpu: input.cpu,
                 mmem: input.mmem,
-                usageClass: input.usageClass
+                usageClass: input.usageClass,
+                threshold: '' // empty threshold
             })));
         });
     }
@@ -42431,10 +42440,16 @@ async function fleetCreation(input) {
     const attemptNumber = 1;
     const result = await makeFleetAttempt(input, input.numInstancesRequired, attemptNumber);
     if (result.status === 'success') {
-        coreExports.info('creation is a success, registering creation on db...');
+        coreExports.info('creation is a success...');
         const now = Date.now();
         const millisecondsToAdd = 10 * 60 * 1000; // 🔍 s to ms
         const threshold = new Date(now + millisecondsToAdd).toISOString();
+        coreExports.info('assigning proper message thresholds...');
+        // mutate result with proper thresholds
+        result.instances.forEach((instance) => {
+            instance.threshold = threshold;
+        });
+        coreExports.info('registering against database...');
         const values = await Promise.all(result.instances.map((instance) => {
             return input.ddbOps.instanceCreatedRegistration({
                 id: instance.id,
@@ -42598,7 +42613,8 @@ async function processFailedProvision(input) {
         instanceType: instance.instanceType,
         cpu: instance.cpu,
         mmem: instance.mmem,
-        usageClass: instance.usageClass
+        usageClass: instance.usageClass,
+        threshold: instance.threshold
     })), resourceClassConfig);
     if (response.failed.length !== 0) {
         coreExports.warning('failed to gracefully redistribute certain instances to queue');
@@ -57136,7 +57152,8 @@ async function releaseWorker(inputs) {
             instanceType: instanceItem.instanceType,
             cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
             mmem: resourceClassConfig[instanceItem.resourceClass].mmem,
-            usageClass: instanceItem.usageClass
+            usageClass: instanceItem.usageClass,
+            threshold: instanceItem.threshold
         };
         await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig);
         coreExports.info(`[WORKER ${workerNum}] Has now safely sent ${instanceId} to ${instanceItem.resourceClass} pool`);

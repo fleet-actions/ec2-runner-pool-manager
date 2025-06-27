@@ -41,6 +41,7 @@ describe('PoolPickUpManager#pickup', () => {
     cpu: 4,
     mmem: 8192,
     usageClass: sampleUsageClass,
+    threshold: new Date(Date.now() + 1000 * 3600).toISOString(), // 1 hr future
     ...overrides
   })
 
@@ -183,6 +184,39 @@ describe('PoolPickUpManager#pickup', () => {
       )
     )
     expect(mockSqsOps.sendResourceToPool).not.toHaveBeenCalled()
+  })
+
+  it('should discard message and retry if it has expired, then pick next valid', async () => {
+    jest.useFakeTimers()
+    const now = new Date()
+    const expiredThreshold = new Date(now.getTime() - 1000).toISOString() // 1 second in the past
+    jest.setSystemTime(now)
+
+    const expiredMsg = createInstanceMessage({
+      id: 'i-expired',
+      threshold: expiredThreshold,
+      instanceType: 'c5.large'
+    })
+    const validMsg = createInstanceMessage({
+      id: 'i-valid-after-expired',
+      instanceType: 'm5.large'
+    })
+
+    mockSqsOps.receiveAndDeleteResourceFromPool
+      .mockResolvedValueOnce(expiredMsg)
+      .mockResolvedValueOnce(validMsg)
+
+    const result = await manager.pickup()
+    expect(result).toEqual(validMsg)
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Message has expired. Message: ${expiredThreshold}`
+      )
+    )
+    expect(mockSqsOps.sendResourceToPool).not.toHaveBeenCalled()
+    expect(mockSqsOps.receiveAndDeleteResourceFromPool).toHaveBeenCalledTimes(2)
+
+    jest.useRealTimers()
   })
 
   it('should discard message if ONLY CPU mismatches', async () => {

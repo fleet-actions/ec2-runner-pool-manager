@@ -42651,7 +42651,6 @@ async function processSuccessfulProvision(input) {
     coreExports.debug(`received ${JSON.stringify({ ...input, ddbOps: '' })}`);
     await processCreatedInstances(input);
     await processSelectedInstances(input);
-    await outputIdsForDistribution(input);
     // ✅ OK to proceed to next job from here
     coreExports.info('completing compose action outputs routine...');
 }
@@ -42697,19 +42696,6 @@ async function processSelectedInstances(input) {
         });
     }));
     coreExports.info('Finished processing selected instances...');
-}
-// 🔍 Instances are outputted from job, omg finally
-async function outputIdsForDistribution(input) {
-    coreExports.info('Outputting any selected & created instances...');
-    const { selectionOutput, creationOutput } = input;
-    const instanceIds = selectionOutput.instances
-        .map((i) => i.id)
-        .concat(creationOutput.instances.map((i) => i.id));
-    // 🔍 ids for arrayed output (multiple instance usage)
-    // 🔍 id for convenience (single instance usage)
-    coreExports.setOutput('ids', instanceIds);
-    coreExports.setOutput('id', instanceIds[0]);
-    coreExports.info(`Completed! Ids now accessible. See ids: ${instanceIds}`);
 }
 
 // 🔍 Final validations prior to releasing or composing; Strictly returns 'success' or 'failed'

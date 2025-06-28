@@ -83,8 +83,7 @@ inputs:
   actions-runner-version:
     description: >
       [REFRESH; Optional] Github Self Hosted Runner version to be used
-      https://github.com/actions/runner/releases
-      (default: '2.325.0')
+      https://github.com/actions/runner/releases (default: '2.325.0')
     default: ''
 
   # Mode-specific inputs

@@ -1,17 +1,17 @@
 {
-  "name": "typescript-action",
-  "description": "GitHub Actions TypeScript template",
+  "name": "EC2 Runner Pool Manager",
+  "description": "Scale and Reuse self-hosted EC2 runners directly within Github Actions. No external controlplane required.",
   "version": "v1.0.0",
-  "author": "",
+  "author": "Jason Aricheta",
   "type": "module",
   "private": true,
-  "homepage": "https://github.com/actions/typescript-action",
+  "homepage": "https://github.com/fleet-actions/ec2-runner-pool-manager",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/typescript-action.git"
+    "url": "git@github.com:fleet-actions/ec2-runner-pool-manager.git"
   },
   "bugs": {
-    "url": "https://github.com/actions/typescript-action/issues"
+    "url": "https://github.com/fleet-actions/ec2-runner-pool-manager/issues"
   },
   "keywords": [
     "actions"

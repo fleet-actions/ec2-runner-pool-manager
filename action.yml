@@ -1,21 +1,14 @@
-name: EC2 Runner Pool
+name: EC2 Runner Pool Manager
 description:
-  elastic-ec2-runner-pool manages a pool of ec2 resources for usage of compute
-  across gha jobs
+  Scale and Reuse self-hosted EC2 runners directly in GitHub Actions. No
+  external control plane.
 author: Jason Aricheta
 
-# Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
-  color: red
+  icon: server
+  color: orange
 
-# Define your inputs here.
 inputs:
-  # Testing (ignore)
-  echo:
-    description: 'Input for mode: echo'
-    default: 'Hello World!!!'
-
   # Must be available for all modes
   mode:
     description: >

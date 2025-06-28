@@ -80,6 +80,12 @@ inputs:
       1024}, "xlarge": {"cpu": 8, "mmem": 2048}} Note: These values are parsed
       and validated. (Defaults provided if not specified).
     default: ''
+  actions-runner-version:
+    description: >
+      [REFRESH; Optional] Github Self Hosted Runner version to be used
+      https://github.com/actions/runner/releases
+      (default: '2.325.0')
+    default: ''
 
   # Mode-specific inputs
   # PROVISION (APPLICATION - REQUIRED); Defaults must be ''
@@ -99,7 +105,7 @@ inputs:
   usage-class:
     description: >
       [PROVISION; Optional] The usage class for EC2 instances, determining
-      pricing model (e.g., 'spot' or 'on-demand'). (default: 'spot')
+      pricing model (e.g., 'spot' or 'on-demand'). (default: 'on-demand')
     default: ''
   allowed-instance-types:
     description: >

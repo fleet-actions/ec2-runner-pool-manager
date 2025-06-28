@@ -14,7 +14,7 @@ const ltData: LTDatav2 = {
 } as any
 
 // Generate the script
-const result = addBuiltInScript('test-table', context, ltData)
+const result = addBuiltInScript('test-table', '1.1.1.1', context, ltData)
 
 // Delete the file if it exists
 if (fs.existsSync('.output-script.sh')) {

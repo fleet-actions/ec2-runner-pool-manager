@@ -123,7 +123,8 @@ export class PoolPickUpManager {
     statusMessage: string
   } {
     // all attributes used apart from id
-    const { cpu, mmem, resourceClass, instanceType, usageClass } = input
+    const { cpu, mmem, resourceClass, instanceType, usageClass, threshold } =
+      input
 
     // unlikely to proc, but if message has invalid rc from pool its been put in, then invalid
     const rc = this.resourceClassConfig[resourceClass]
@@ -142,6 +143,15 @@ export class PoolPickUpManager {
           cpu !== rc.cpu
             ? `Picked up cpu (${cpu}) is not equal to spec (${rc.cpu})`
             : `Picked up mmem (${mmem}) is too low for spec (${rc.mmem})`
+      }
+    }
+
+    // If current date is more recent, then message has expired
+    const currentDate = new Date()
+    if (new Date(threshold) < currentDate) {
+      return {
+        status: 'delete',
+        statusMessage: `Message has expired. Message: ${threshold} Current: ${currentDate}`
       }
     }
 

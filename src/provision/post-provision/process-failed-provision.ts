@@ -54,7 +54,8 @@ export async function processFailedProvision(
       instanceType: instance.instanceType,
       cpu: instance.cpu,
       mmem: instance.mmem,
-      usageClass: instance.usageClass
+      usageClass: instance.usageClass,
+      threshold: instance.threshold
     })),
     resourceClassConfig
   )

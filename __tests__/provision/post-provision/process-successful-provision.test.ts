@@ -119,15 +119,6 @@ describe('processSuccessfulProvision', () => {
       })
     })
 
-    it('outputs instance IDs correctly for distribution', async () => {
-      await processSuccessfulProvision(mockInput)
-
-      // Verify that the instance IDs are set as outputs
-      const expectedIds = ['i-selected1', 'i-selected2', 'i-created1']
-      expect(core.setOutput).toHaveBeenCalledWith('ids', expectedIds)
-      expect(core.setOutput).toHaveBeenCalledWith('id', expectedIds[0])
-    })
-
     it('handles empty created instances gracefully', async () => {
       mockInput.creationOutput.instances = []
 
@@ -141,11 +132,6 @@ describe('processSuccessfulProvision', () => {
       expect(
         mockInstanceOperations.instanceStateTransition
       ).toHaveBeenCalledTimes(2)
-
-      // Outputs should only include selected instances
-      const expectedIds = ['i-selected1', 'i-selected2']
-      expect(core.setOutput).toHaveBeenCalledWith('ids', expectedIds)
-      expect(core.setOutput).toHaveBeenCalledWith('id', expectedIds[0])
     })
 
     it('handles empty selected instances gracefully', async () => {
@@ -162,11 +148,6 @@ describe('processSuccessfulProvision', () => {
       expect(
         mockInstanceOperations.instanceStateTransition
       ).not.toHaveBeenCalled()
-
-      // Outputs should only include created instances
-      const expectedIds = ['i-created1']
-      expect(core.setOutput).toHaveBeenCalledWith('ids', expectedIds)
-      expect(core.setOutput).toHaveBeenCalledWith('id', expectedIds[0])
     })
   })
 
@@ -200,19 +181,6 @@ describe('processSuccessfulProvision', () => {
       expect(
         mockInstanceOperations.instanceStateTransition
       ).not.toHaveBeenCalled()
-      expect(core.setOutput).not.toHaveBeenCalled()
-    })
-
-    it('fails fast if no instances are available', async () => {
-      mockInput.selectionOutput.instances = []
-      mockInput.creationOutput.instances = []
-
-      await processSuccessfulProvision(mockInput)
-
-      // Should set outputs with empty array
-      expect(core.setOutput).toHaveBeenCalledWith('ids', [])
-      // There's no first element, but the current implementation would use undefined
-      expect(core.setOutput).toHaveBeenCalledWith('id', undefined)
     })
   })
 })

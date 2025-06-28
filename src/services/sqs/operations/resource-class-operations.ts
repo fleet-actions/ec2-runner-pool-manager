@@ -16,6 +16,7 @@ export interface InstanceMessage {
   cpu: number // 🔍 added as used in selection filter, obtainable in creation due to init attributes
   mmem: number // .mmem retaints original meaning as minimum, not exact
   usageClass: UsageClassType
+  threshold: string
 }
 
 export interface SendResourcesToPoolsOutput {

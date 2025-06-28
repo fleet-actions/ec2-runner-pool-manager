@@ -57,8 +57,10 @@ export async function releaseWorker(inputs: ReleaseWorkerInputs) {
       instanceType: instanceItem.instanceType,
       cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
       mmem: resourceClassConfig[instanceItem.resourceClass].mmem,
-      usageClass: instanceItem.usageClass
+      usageClass: instanceItem.usageClass,
+      threshold: instanceItem.threshold
     }
+
     await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig)
     core.info(
       `[WORKER ${workerNum}] Has now safely sent ${instanceId} to ${instanceItem.resourceClass} pool`

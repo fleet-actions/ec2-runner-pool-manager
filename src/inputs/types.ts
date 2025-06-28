@@ -55,6 +55,7 @@ export interface RefreshInputs extends BaseInputs {
   preRunnerScript: string
   subnetIds: string[]
   resourceClassConfig: ResourceClassConfigInput
+  actionsRunnerVersion: string
 }
 
 export type ActionInputs = ProvisionInputs | ReleaseInputs | RefreshInputs

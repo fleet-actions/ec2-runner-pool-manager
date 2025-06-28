@@ -45,7 +45,8 @@ export function processFleetResponse(
           resourceClass,
           cpu: input.cpu,
           mmem: input.mmem,
-          usageClass: input.usageClass
+          usageClass: input.usageClass,
+          threshold: '' // empty threshold
         }))
       )
     })

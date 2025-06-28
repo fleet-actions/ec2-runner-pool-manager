@@ -22,7 +22,6 @@ export async function processSuccessfulProvision(
 
   await processCreatedInstances(input)
   await processSelectedInstances(input)
-  await outputIdsForDistribution(input)
 
   // ✅ OK to proceed to next job from here
   core.info('completing compose action outputs routine...')
@@ -108,21 +107,4 @@ export async function processSelectedInstances(
 export interface OutputIdsForDistributionInput {
   selectionOutput: SelectionOutput
   creationOutput: CreationOuput
-}
-
-// 🔍 Instances are outputted from job, omg finally
-export async function outputIdsForDistribution(
-  input: OutputIdsForDistributionInput
-) {
-  core.info('Outputting any selected & created instances...')
-  const { selectionOutput, creationOutput } = input
-  const instanceIds = selectionOutput.instances
-    .map((i) => i.id)
-    .concat(creationOutput.instances.map((i) => i.id))
-
-  // 🔍 ids for arrayed output (multiple instance usage)
-  // 🔍 id for convenience (single instance usage)
-  core.setOutput('ids', instanceIds)
-  core.setOutput('id', instanceIds[0])
-  core.info(`Completed! Ids now accessible. See ids: ${instanceIds}`)
 }

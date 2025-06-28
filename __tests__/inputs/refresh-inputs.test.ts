@@ -31,6 +31,7 @@ describe('parseRefreshInputs', () => {
   const defaultInputs: Record<string, string> = {
     'idle-time-sec': '300',
     'github-reg-token-refresh-min': '30',
+    'actions-runner-version': '1.1.1.1',
     'github-token': 'gh-token-123',
     ami: 'ami-123456',
     'iam-instance-profile': 'instance-profile-1',
@@ -61,6 +62,7 @@ describe('parseRefreshInputs', () => {
     const expectedOutput: RefreshInputs = {
       ...parseBaseInputs(),
       mode: 'refresh',
+      actionsRunnerVersion: '1.1.1.1',
       idleTimeSec: 300,
       maxRuntimeMin: 30,
       githubRegTokenRefreshMins: 30,

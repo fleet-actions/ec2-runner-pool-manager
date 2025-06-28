@@ -31259,7 +31259,8 @@ const REFRESH_DEFAULTS = {
     'idle-time-sec': 7 * 60, // 7 min idle time to acc for gh deregistration time T_T
     'max-runtime-min': 30,
     'pre-runner-script': DEFAULT_SCRIPT,
-    'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT
+    'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT,
+    'actions-runner-version': '2.325.0' // https://github.com/actions/runner/releases
 };
 const UNSPECIFIED_MAX_RUNTIME_MINUTES = -1;
 const PROVISION_DEFAULT = {
@@ -31419,7 +31420,8 @@ function parseRefreshInputs() {
         idleTimeSec: getNumber('idle-time-sec', false, REFRESH_DEFAULTS),
         maxRuntimeMin: getNumber('max-runtime-min', false, REFRESH_DEFAULTS),
         preRunnerScript: getString('pre-runner-script', false, REFRESH_DEFAULTS),
-        resourceClassConfig: getResourceClassConfig()
+        resourceClassConfig: getResourceClassConfig(),
+        actionsRunnerVersion: getString('actions-runner-version', false, REFRESH_DEFAULTS)
     };
 }
 function getGithubRegTokenRefreshMins() {
@@ -42093,7 +42095,7 @@ class PoolPickUpManager {
     // - any pattern on allowedInstanceTypes (requeue)
     classifyMessage(input) {
         // all attributes used apart from id
-        const { cpu, mmem, resourceClass, instanceType, usageClass } = input;
+        const { cpu, mmem, resourceClass, instanceType, usageClass, threshold } = input;
         // unlikely to proc, but if message has invalid rc from pool its been put in, then invalid
         const rc = this.resourceClassConfig[resourceClass];
         if (!rc) {
@@ -42109,6 +42111,14 @@ class PoolPickUpManager {
                 statusMessage: cpu !== rc.cpu
                     ? `Picked up cpu (${cpu}) is not equal to spec (${rc.cpu})`
                     : `Picked up mmem (${mmem}) is too low for spec (${rc.mmem})`
+            };
+        }
+        // If current date is more recent, then message has expired
+        const currentDate = new Date();
+        if (new Date(threshold) < currentDate) {
+            return {
+                status: 'delete',
+                statusMessage: `Message has expired. Message: ${threshold} Current: ${currentDate}`
             };
         }
         // NOTE: if fails by filter, this needs to proc a requeue
@@ -42327,7 +42337,8 @@ function processFleetResponse(input) {
                 resourceClass,
                 cpu: input.cpu,
                 mmem: input.mmem,
-                usageClass: input.usageClass
+                usageClass: input.usageClass,
+                threshold: '' // empty threshold
             })));
         });
     }
@@ -42429,10 +42440,16 @@ async function fleetCreation(input) {
     const attemptNumber = 1;
     const result = await makeFleetAttempt(input, input.numInstancesRequired, attemptNumber);
     if (result.status === 'success') {
-        coreExports.info('creation is a success, registering creation on db...');
+        coreExports.info('creation is a success...');
         const now = Date.now();
         const millisecondsToAdd = 10 * 60 * 1000; // 🔍 s to ms
         const threshold = new Date(now + millisecondsToAdd).toISOString();
+        coreExports.info('assigning proper message thresholds...');
+        // mutate result with proper thresholds
+        result.instances.forEach((instance) => {
+            instance.threshold = threshold;
+        });
+        coreExports.info('registering against database...');
         const values = await Promise.all(result.instances.map((instance) => {
             return input.ddbOps.instanceCreatedRegistration({
                 id: instance.id,
@@ -42596,7 +42613,8 @@ async function processFailedProvision(input) {
         instanceType: instance.instanceType,
         cpu: instance.cpu,
         mmem: instance.mmem,
-        usageClass: instance.usageClass
+        usageClass: instance.usageClass,
+        threshold: instance.threshold
     })), resourceClassConfig);
     if (response.failed.length !== 0) {
         coreExports.warning('failed to gracefully redistribute certain instances to queue');
@@ -42633,7 +42651,6 @@ async function processSuccessfulProvision(input) {
     coreExports.debug(`received ${JSON.stringify({ ...input, ddbOps: '' })}`);
     await processCreatedInstances(input);
     await processSelectedInstances(input);
-    await outputIdsForDistribution(input);
     // ✅ OK to proceed to next job from here
     coreExports.info('completing compose action outputs routine...');
 }
@@ -42679,19 +42696,6 @@ async function processSelectedInstances(input) {
         });
     }));
     coreExports.info('Finished processing selected instances...');
-}
-// 🔍 Instances are outputted from job, omg finally
-async function outputIdsForDistribution(input) {
-    coreExports.info('Outputting any selected & created instances...');
-    const { selectionOutput, creationOutput } = input;
-    const instanceIds = selectionOutput.instances
-        .map((i) => i.id)
-        .concat(creationOutput.instances.map((i) => i.id));
-    // 🔍 ids for arrayed output (multiple instance usage)
-    // 🔍 id for convenience (single instance usage)
-    coreExports.setOutput('ids', instanceIds);
-    coreExports.setOutput('id', instanceIds[0]);
-    coreExports.info(`Completed! Ids now accessible. See ids: ${instanceIds}`);
 }
 
 // 🔍 Final validations prior to releasing or composing; Strictly returns 'success' or 'failed'
@@ -56611,18 +56615,12 @@ ${functionName}() {
 }
 
 /* eslint-disable no-useless-escape */
-// in this file, we will take the current (user-inputted) userdata and append
-// .metadata query
-// .ddb state update (ud-completed)
-// .gh registration
-// .ddb state update (ud-gh-completed)
 // DDB cli examples: https://docs.aws.amazon.com/cli/v1/userguide/cli_dynamodb_code_examples.html
 // CLI examples: https://github.com/machulav/ec2-github-runner/blob/main/src/aws.js
 // USE:
 // $ tail -f /var/log/user-data.log
 // $ journalctl -t user-data
-function addBuiltInScript(tableName, context, input) {
-    const RUNNER_VERSION = '2.323.0'; // NOTE: parameterizing directly may cause multi-lt versions being hit faster. Consider as metadata
+function addBuiltInScript(tableName, actionsRunnerVersion, context, input) {
     // NOTE: see mixing of single/double quotes for INSTANCE_ID (https://stackoverflow.com/a/48470195)
     const WRAPPER_SCRIPT = `#!/bin/bash
 
@@ -56655,7 +56653,7 @@ echo "Scripts (are chmod +x)"
 ${heartbeatScript('heartbeat.sh')}
 ${selfTerminationScript('self-termination.sh')}
 ${userScript('user-script.sh', input.userData)}
-${downloadRunnerArtifactScript('download-runner-artifact.sh', RUNNER_VERSION)}
+${downloadRunnerArtifactScript('download-runner-artifact.sh', actionsRunnerVersion)}
 
 ### SOME INITIALIZATION ###
 if echo "$INITIAL_RUN_ID" | grep -q 'Not Found'; then
@@ -56759,7 +56757,7 @@ function addUDWithBaseAndHash(ltInput) {
 function composeUserData(input) {
     // Append UD
     coreExports.info('appending UD...');
-    let ltInput = addBuiltInScript(input.tableName, input.context, input.ltInput);
+    let ltInput = addBuiltInScript(input.tableName, input.actionsRunnerVersion, input.context, input.ltInput);
     // Add on hash/base64
     coreExports.info('adding UD base64 and UD hash...');
     ltInput = addUDWithBaseAndHash(ltInput);
@@ -56771,12 +56769,14 @@ function composeUserData(input) {
 class LaunchTemplateManager {
     tableName;
     githubContext;
+    actionsRunnerVersion;
     ec2Ops;
     ddbOps;
     ltName;
-    constructor(tableName, githubContext, ec2Ops, ddbOps, ltName = 'ci-launch-template') {
+    constructor(tableName, githubContext, actionsRunnerVersion, ec2Ops, ddbOps, ltName = 'ci-launch-template') {
         this.tableName = tableName;
         this.githubContext = githubContext;
+        this.actionsRunnerVersion = actionsRunnerVersion;
         this.ec2Ops = ec2Ops;
         this.ddbOps = ddbOps;
         this.ltName = ltName;
@@ -56790,6 +56790,7 @@ class LaunchTemplateManager {
         ltInput = populateLTName(ltInput, this.ltName);
         ltInput = composeUserData({
             tableName: this.tableName,
+            actionsRunnerVersion: this.actionsRunnerVersion,
             context: this.githubContext,
             ltInput
         });
@@ -56843,8 +56844,8 @@ class LaunchTemplateManager {
         coreExports.info(`Launch template ${name} updated to default version ${newVersionNumber}`);
     }
 }
-async function manageLT(tableName, githubContext, data, ec2ltOps, ddbltOps) {
-    const manager = new LaunchTemplateManager(tableName, githubContext, ec2ltOps, ddbltOps);
+async function manageLT(tableName, githubContext, actionsRunnerVersion, data, ec2ltOps, ddbltOps) {
+    const manager = new LaunchTemplateManager(tableName, githubContext, actionsRunnerVersion, ec2ltOps, ddbltOps);
     await manager.manage(data);
 }
 
@@ -57048,7 +57049,7 @@ async function refresh(inputs) {
             resourceClassConfig: ''
         }) // remove ghtoken and pollution
     );
-    const { mode, awsRegion, tableName, idleTimeSec, maxRuntimeMin, subnetIds, resourceClassConfig, githubToken, githubRegTokenRefreshMins, githubRepoOwner, githubRepoName, ami, iamInstanceProfile, securityGroupIds, preRunnerScript } = inputs;
+    const { mode, awsRegion, tableName, idleTimeSec, maxRuntimeMin, subnetIds, resourceClassConfig, githubToken, githubRegTokenRefreshMins, githubRepoOwner, githubRepoName, ami, iamInstanceProfile, securityGroupIds, preRunnerScript, actionsRunnerVersion } = inputs;
     const ec2Service = createEC2Service(awsRegion);
     const ddbService = createDynamoDBService(awsRegion, tableName);
     const sqsService = createSQSService(awsRegion);
@@ -57061,7 +57062,7 @@ async function refresh(inputs) {
     await manageSubnetIds(subnetIds, ddbService.getSubnetOperations());
     await manageMaxRuntimeMin(maxRuntimeMin, ddbService.getMaxRuntimeMinOperations());
     await manageRegistrationToken(githubRegTokenRefreshMins, ghService.getRegistrationTokenOperations(), ddbService.getRegistrationTokenOperations());
-    await manageLT(tableName, { owner: githubRepoOwner, repo: githubRepoName }, {
+    await manageLT(tableName, { owner: githubRepoOwner, repo: githubRepoName }, actionsRunnerVersion, {
         ami,
         iamInstanceProfile,
         securityGroupIds,
@@ -57137,7 +57138,8 @@ async function releaseWorker(inputs) {
             instanceType: instanceItem.instanceType,
             cpu: resourceClassConfig[instanceItem.resourceClass].cpu,
             mmem: resourceClassConfig[instanceItem.resourceClass].mmem,
-            usageClass: instanceItem.usageClass
+            usageClass: instanceItem.usageClass,
+            threshold: instanceItem.threshold
         };
         await sqsOps.sendResourceToPool(instanceMessage, resourceClassConfig);
         coreExports.info(`[WORKER ${workerNum}] Has now safely sent ${instanceId} to ${instanceItem.resourceClass} pool`);

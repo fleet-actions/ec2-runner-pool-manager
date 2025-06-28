@@ -31,7 +31,8 @@ export const REFRESH_DEFAULTS = {
   'idle-time-sec': 7 * 60, // 7 min idle time to acc for gh deregistration time T_T
   'max-runtime-min': 30,
   'pre-runner-script': DEFAULT_SCRIPT,
-  'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT
+  'resource-class-config': RESOURCE_CLASS_CONFIG_DEFAULT,
+  'actions-runner-version': '2.325.0' // https://github.com/actions/runner/releases
 }
 
 export const UNSPECIFIED_MAX_RUNTIME_MINUTES = -1

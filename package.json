@@ -39,12 +39,12 @@
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.0",
+    "@actions/github": "^6.0.1",
     "@aws-sdk/client-dynamodb": "^3.772.0",
     "@aws-sdk/client-ec2": "^3.772.0",
     "@aws-sdk/client-sqs": "^3.782.0",
     "@aws-sdk/lib-dynamodb": "^3.778.0",
-    "@smithy/util-waiter": "^4.0.3",
+    "@smithy/util-waiter": "^4.0.6",
     "crypto-js": "^4.2.0",
     "dayjs": "^1.11.13"
   },

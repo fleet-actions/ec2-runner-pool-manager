@@ -1,3 +1,37 @@
+# 🚧 Experimental / Archived
+
+> **Status — Proof-of-Concept (June 2025)**  
+> Native resource-scheduler prototype for self-hosted GitHub Actions runners.  
+> **No longer under active development.**
+
+### What this means
+
+- No roadmap or official support — use at your own risk.
+- Issues and pull-requests are welcome but handled **best-effort**.
+- Feel free to **fork and evolve** the idea.
+
+### Why it exists
+
+This repo explores whether a lightweight, Kubernetes-style scheduler can live
+_inside_ GitHub Actions itself—spinning, pooling, and retiring EC2 runners on
+demand. It showcases:
+
+- Dynamic fleet provisioning & cleanup
+- Runner lifecycle orchestration
+- Spot vs. on-demand cost optimisation
+
+### Looking for a production-ready solution?
+
+Consider:
+
+- [actions-runner-controller](https://github.com/actions-runner-controller/actions-runner-controller)
+- [terraform-aws-github-runner](https://github.com/philips-labs/terraform-aws-github-runner)
+
+Full documentation remains available at
+<https://fleet-actions.github.io/ec2-runner-pool-manager/>.
+
+---
+
 # Fleet Actions: EC2 Runner Pool Manager 🚀♻️
 
 ![Sample Workflow](./docs/assets/sample-workflow-light.png)

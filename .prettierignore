@@ -3,9 +3,11 @@
 dist/
 node_modules/
 coverage/
+.venv
 
 .github/
 script/
 testing/
 
 docs
+mkdocs.yml

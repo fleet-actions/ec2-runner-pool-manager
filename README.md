@@ -1,8 +1,8 @@
 # 🚧 Experimental
 
-> **Status - Not in active development (June 2025)**  
-> Native resource-scheduler for self-hosted GitHub Actions runners.
-> Feel free to **fork and evolve** the idea.
+> **Status - Not in active development (June 2025)** Native resource-scheduler
+> for self-hosted GitHub Actions runners. Feel free to **fork and evolve** the
+> idea.
 
 ### Why it exists
 

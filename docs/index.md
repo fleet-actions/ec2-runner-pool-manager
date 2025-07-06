@@ -1,3 +1,8 @@
+---
+title: Scale & Self-Host CI Runners for Github Actions
+description: Minimal infrastructure setup. Scale self-hosted runners within Github Actions. No external controlplane or infrastructure as code
+---
+
 # Simple, Scalable & Reusable EC2 Runners for GitHub Actions
 
 ![Sample-Workflow](assets/sample-workflow-light.png)

@@ -45,6 +45,9 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 
+plugins:
+    - social
+
 nav:
   - Home: index.md
   - Getting Started:

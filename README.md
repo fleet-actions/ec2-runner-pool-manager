@@ -1,14 +1,8 @@
-# 🚧 Experimental / Archived
+# 🚧 Experimental
 
-> **Status — Proof-of-Concept (June 2025)**  
-> Native resource-scheduler prototype for self-hosted GitHub Actions runners.  
-> **No longer under active development.**
-
-### What this means
-
-- No roadmap or official support — use at your own risk.
-- Issues and pull-requests are welcome but handled **best-effort**.
-- Feel free to **fork and evolve** the idea.
+> **Status - Not in active development (June 2025)**  
+> Native resource-scheduler for self-hosted GitHub Actions runners.
+> Feel free to **fork and evolve** the idea.
 
 ### Why it exists
 

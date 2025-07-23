@@ -1,5 +1,6 @@
 site_name: Fleet Actions
 site_url: https://fleet-actions.github.io/ec2-runner-pool-manager/
+repo_url: https://github.com/fleet-actions/ec2-runner-pool-manager
 theme:
   name: material
   icon:

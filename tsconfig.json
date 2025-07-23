@@ -6,6 +6,13 @@
     "moduleResolution": "NodeNext",
     "outDir": "./dist"
   },
-  "exclude": ["__fixtures__", "__tests__", "coverage", "dist", "node_modules"],
+  "exclude": [
+    "__fixtures__",
+    "__tests__",
+    "coverage",
+    "dist",
+    "node_modules",
+    ".venv"
+  ],
   "include": ["src"]
 }

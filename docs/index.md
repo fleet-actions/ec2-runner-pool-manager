@@ -5,11 +5,13 @@ description: Minimal infrastructure setup. Scale self-hosted runners within Gith
 
 # Simple, Scalable & Reusable EC2 Runners for GitHub Actions
 
-![Sample-Workflow](assets/sample-workflow-light.png)
+![Sample-Workflow](assets/annotated-sample-workflow.png)
 
 This Action enables you to run a pool of self-hosted EC2 runners directly within the GitHub Actions runtime. Resource pooling, scale-in/scale-out, and the entire runner lifecycle are all managed by the action itself - no external control plane or infrastructure-as-code required.
 
 ## :zap: Motivation: YAML-first control
+
+![Simplified-Architecture](assets/simplified-architecture.png)
 
 This action was explicitly designed to **embed** the control plane within GitHub Actions, avoiding the complexity of separate infrastructure or specialized expertise in Kubernetes or Terraform. While existing solutions either require external control planes or sacrifice performance for simplicity, this project combines the best of both worlds.
 
@@ -36,11 +38,15 @@ This model provides a powerful, YAML-centric approach to runner management, insp
 
 Ready to try it out? Follow our step-by-step guides to get up and running in minutes.
 
-**[Prerequisites](getting-started/prerequisites.md) :arrow_right: [Quickstart](getting-started/quickstart.md) :arrow_right: [Advanced Configuration](getting-started/advanced-configuration.md)**
+- **[Prerequisites](getting-started/prerequisites.md)**
+- **[Quickstart](getting-started/quickstart.md)**
+- **[Advanced Configuration](getting-started/advanced-configuration.md)**
 
 ## :mag: Digging Deeper
 
 For a more detailed look at the internal design and advanced use cases:
 
-- **:compass: Architectural Overview**: Learn how the different components work together in our [How It Works](architecture/overview.md) guide.
-- **:clipboard: Workflow Examples**: See complete, practical examples for different CI/CD scenarios in our [Examples](examples/basic-workflow.md) section. (See [advanced examples](./examples/advanced-scenarios.md) too)
+![Overall-Architecture](assets/overall-architecture.png)
+
+- **:compass: Architectural Overview**: Learn how the different components work together in our [**How It Works**](architecture/overview.md) guide.
+- **:clipboard: Workflow Examples**: See complete, practical examples for different CI/CD scenarios in our **[Examples](examples/basic-workflow.md)** section. (See **[advanced examples](./examples/advanced-scenarios.md)** too)

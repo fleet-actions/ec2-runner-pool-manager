@@ -28,7 +28,7 @@ Full documentation remains available at
 
 # Fleet Actions: EC2 Runner Pool Manager 🚀♻️
 
-![Sample Workflow](./docs/assets/sample-workflow-light.png)
+![Sample Workflow](./docs/assets/annotated-sample-workflow.png)
 
 Provision, scale, and reuse a pool of self-hosted EC2 runners directly within
 your GitHub Actions workflows, all with a simple, embedded control plane.

@@ -107,3 +107,4 @@ __tests__/runner/*
 
 # docs
 venv
+.venv

@@ -8,7 +8,7 @@
 
 This repo explores whether a lightweight, Kubernetes-style scheduler can live
 _inside_ GitHub Actions itself—spinning, pooling, and retiring EC2 runners on
-demand. It showcases:
+demand - it showcases:
 
 - Dynamic fleet provisioning & cleanup
 - Runner lifecycle orchestration
